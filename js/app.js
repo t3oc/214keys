@@ -1,7 +1,11 @@
 import radicals from "./radicals.js";
+import { createReadingWaveform } from "./audioWaveform.js";
+import { applyPitchTint, clearPitchTint } from "./pitchTint.js";
 import {
+  getSamplePeaks,
   isSampleLoading,
   isSampleReady,
+  loadSamplePeaks,
   speakRadical,
   unlockSpeech,
 } from "./radicalSpeech.js";
@@ -15,6 +19,14 @@ const speakerJp = document.getElementById("speaker-jp");
 const speakerCn = document.getElementById("speaker-cn");
 const speakerWaitJp = document.getElementById("speaker-wait-jp");
 const speakerWaitCn = document.getElementById("speaker-wait-cn");
+const readingWaves = {
+  jp: createReadingWaveform(document.getElementById("audio-wave-jp")),
+  cn: createReadingWaveform(document.getElementById("audio-wave-cn")),
+};
+const waveRoots = {
+  jp: document.getElementById("audio-wave-jp"),
+  cn: document.getElementById("audio-wave-cn"),
+};
 const modalPrev = document.getElementById("modal-prev");
 const modalNext = document.getElementById("modal-next");
 const modalGroupPrev = document.getElementById("modal-group-prev");
@@ -133,22 +145,65 @@ function filterRadicals(query) {
   return radicals.filter((item) => itemHaystack(item).includes(q));
 }
 
+function pitchTintTargets(lang) {
+  const btn = lang === "jp" ? speakerJp : speakerCn;
+  return [btn, waveRoots[lang]];
+}
+
 function setSpeakerState(lang, active) {
   speaking[lang] = active;
   const btn = lang === "jp" ? speakerJp : speakerCn;
   btn.classList.toggle("speaker--active", active);
   btn.setAttribute("aria-pressed", String(active));
+  if (!active) clearPitchTint(pitchTintTargets(lang));
 }
 
 function setSpeakerLoading(lang, loading) {
   const btn = lang === "jp" ? speakerJp : speakerCn;
   const wait = lang === "jp" ? speakerWaitJp : speakerWaitCn;
+  btn.hidden = loading;
+  btn.setAttribute("aria-hidden", String(loading));
+  btn.setAttribute("aria-busy", String(loading));
   wait.hidden = !loading;
   wait.setAttribute("aria-hidden", String(!loading));
-  btn.setAttribute("aria-busy", String(loading));
+}
+
+function resetReadingWaves() {
+  for (const lang of ["jp", "cn"]) {
+    readingWaves[lang].setPeaks(null);
+    readingWaves[lang].hide();
+    readingWaves[lang].reset();
+  }
+}
+
+function syncReadingWave(item, lang) {
+  const wave = readingWaves[lang];
+  const peaks = getSamplePeaks(lang, item.id);
+  if (peaks) {
+    wave.setPeaks(peaks);
+    wave.reset();
+    requestAnimationFrame(() => wave.resize());
+    return;
+  }
+
+  wave.hide();
+  void loadSamplePeaks(lang, item.id).then((loaded) => {
+    if (!activeItem || activeItem.id !== item.id) return;
+    if (!loaded) return;
+    wave.setPeaks(loaded);
+    wave.reset();
+    requestAnimationFrame(() => wave.resize());
+  });
+}
+
+function syncModalReadingWaves(item) {
+  syncReadingWave(item, "jp");
+  syncReadingWave(item, "cn");
 }
 
 function wireSpeaker(btn, lang) {
+  const wave = readingWaves[lang];
+
   btn.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
     if (!activeItem) return;
@@ -170,18 +225,29 @@ function wireSpeaker(btn, lang) {
     const runSpeak = () => {
       if (!activeItem || activeItem.id !== item.id) {
         setSpeakerLoading(lang, false);
+        wave.setPlaying(false);
         return;
       }
 
       speakRadical(item, lang, {
         onLoadStart: () => setSpeakerLoading(lang, true),
-        onStart: () => {
+        onStart: (rate) => {
           setSpeakerLoading(lang, false);
+          applyPitchTint(pitchTintTargets(lang), rate);
           setSpeakerState(lang, true);
+          wave.setPlaying(true);
+          const peaks = getSamplePeaks(lang, item.id);
+          if (peaks) {
+            wave.setPeaks(peaks);
+            wave.resize();
+          }
         },
+        onProgress: (t) => wave.setProgress(t),
         onEnd: () => {
           setSpeakerLoading(lang, false);
           setSpeakerState(lang, false);
+          wave.setPlaying(false);
+          wave.setProgress(0);
         },
       });
     };
@@ -199,6 +265,10 @@ function resetSpeakers() {
   setSpeakerState("cn", false);
   setSpeakerLoading("jp", false);
   setSpeakerLoading("cn", false);
+  readingWaves.jp.setPlaying(false);
+  readingWaves.cn.setPlaying(false);
+  readingWaves.jp.setProgress(0);
+  readingWaves.cn.setProgress(0);
 }
 
 function getVisibleItems() {
@@ -265,6 +335,7 @@ function fillModal(item) {
   fields.strokes.textContent = strokeSectionLabel(item.strokes);
 
   updateModalNav();
+  syncModalReadingWaves(item);
 }
 
 function updateActiveCellEl(container, item, prevEl) {
@@ -610,6 +681,7 @@ function closeModal() {
   activeItem = null;
   activeMinimapCellEl = null;
   resetSpeakers();
+  resetReadingWaves();
   modalPrev.disabled = true;
   modalNext.disabled = true;
   modalGroupPrev.disabled = true;

@@ -32,6 +32,9 @@
   --speaker-active: #8a6f4a;
   --speaker-active-bg: rgba(205, 188, 160, 0.18);
   --speaker-active-border: rgba(195, 175, 145, 0.45);
+  --wave-base: rgba(138, 128, 116, 0.22);
+  --wave-progress: rgba(138, 128, 116, 0.5);
+  --wave-active: #8a6f4a;
   --font-han-serif: "Noto Serif SC", "Noto Sans JP", "Yu Mincho", "SimSun", serif;
   --font-han-linear: "Zen Kaku Gothic New", "Noto Sans SC", "Noto Sans JP", sans-serif;
   --font-han: var(--font-han-serif);
@@ -69,6 +72,9 @@ html[data-theme="dark"] {
   --speaker-active: #c9ad7a;
   --speaker-active-bg: rgba(180, 165, 140, 0.15);
   --speaker-active-border: rgba(180, 165, 140, 0.35);
+  --wave-base: rgba(154, 146, 134, 0.24);
+  --wave-progress: rgba(196, 188, 176, 0.55);
+  --wave-active: #c9ad7a;
   color-scheme: dark;
 }
 
@@ -816,14 +822,58 @@ html[data-theme="dark"] .modal-map__viewport {
 .modal__reading {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.45rem 0.55rem;
+  min-width: 0;
 }
 
-.speaker-controls {
-  display: inline-flex;
+.modal__reading-text {
+  flex: 0 0 auto;
+}
+
+.modal__reading-controls {
+  flex: 1 1 auto;
+  display: flex;
   align-items: center;
   gap: 0.35rem;
+  min-width: 0;
+}
+
+.speaker-slot {
+  position: relative;
   flex-shrink: 0;
+  width: 1.65rem;
+  height: 1.65rem;
+}
+
+.speaker-slot .speaker,
+.speaker-slot .speaker-wait {
+  position: absolute;
+  inset: 0;
+}
+
+.audio-wave {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 1.65rem;
+  box-sizing: border-box;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 3px var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.audio-wave--active {
+  background: var(--speaker-active-bg);
+  box-shadow: inset 0 0 0 1px var(--speaker-active-border);
+}
+
+.audio-wave__canvas {
+  display: block;
+  width: 100%;
+  height: 0.85rem;
 }
 
 .speaker {
@@ -867,9 +917,8 @@ html[data-theme="dark"] .modal-map__viewport {
 }
 
 .speaker-wait {
-  flex-shrink: 0;
-  width: 1.65rem;
-  height: 1.65rem;
+  width: 100%;
+  height: 100%;
   border-radius: 4px;
   display: none;
   align-items: center;
