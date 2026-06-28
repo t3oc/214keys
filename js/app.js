@@ -2,6 +2,11 @@ import radicals from "./radicals.js";
 import { createReadingWaveform } from "./audioWaveform.js";
 import { applyPitchTint, clearPitchTint } from "./pitchTint.js";
 import {
+  burstSpeakerParticles,
+  clearSpeakerParticles,
+  initSpeakerParticles,
+} from "./speakerParticles.js";
+import {
   getSamplePeaks,
   isSampleLoading,
   isSampleReady,
@@ -206,13 +211,14 @@ function wireSpeaker(btn, lang) {
 
   btn.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
-    if (!activeItem) return;
+    if (!activeItem || btn.hidden) return;
     unlockSpeech();
   });
 
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     if (!activeItem || btn.getAttribute("aria-busy") === "true") return;
+    burstSpeakerParticles(btn, lang, activeItem);
 
     unlockSpeech();
     const item = activeItem;
@@ -682,6 +688,7 @@ function closeModal() {
   activeMinimapCellEl = null;
   resetSpeakers();
   resetReadingWaves();
+  clearSpeakerParticles();
   modalPrev.disabled = true;
   modalNext.disabled = true;
   modalGroupPrev.disabled = true;
@@ -954,6 +961,7 @@ searchInput.addEventListener("input", () => {
 
 wireSpeaker(speakerJp, "jp");
 wireSpeaker(speakerCn, "cn");
+initSpeakerParticles();
 
 const THEME_KEY = "214keys-theme";
 const FONT_KEY = "214keys-font";
