@@ -1,0 +1,11 @@
+{
+  "name": "214-keys",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:audio": "node scripts/generate-audio.mjs"
+  },
+  "devDependencies": {
+    "msedge-tts": "^2.0.5"
+  }
+}

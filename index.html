@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>214 ключей — 康熙部首</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300&family=Noto+Serif+SC:wght@300&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="page">
+    <p class="credit">designed by laditeo</p>
+
+    <header class="header">
+      <p class="header__eyebrow">康熙部首 · 214 radicals</p>
+      <h1 class="header__title">214 ключей</h1>
+      <p class="header__subtitle">Кликни на иероглиф — откроется чтение и объяснение ключа</p>
+    </header>
+
+    <div class="search">
+      <label class="search__label" for="search-input">Поиск</label>
+      <input
+        id="search-input"
+        class="search__input"
+        type="search"
+        placeholder="иероглиф, чтение, pinyin, объяснение…"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <p class="search__meta" id="search-meta" aria-live="polite"></p>
+    </div>
+
+    <p class="empty" id="empty" hidden>Ничего не найдено</p>
+
+    <main id="grid" class="grid" aria-label="Таблица радикалов"></main>
+  </div>
+
+  <dialog id="modal" class="modal" aria-labelledby="modal-char">
+    <div class="modal__inner">
+      <button type="button" class="modal__close" aria-label="Закрыть">&times;</button>
+
+      <div class="modal__hero">
+        <span class="modal__num" id="modal-num"></span>
+        <span class="modal__char" id="modal-char"></span>
+        <span class="modal__variants" id="modal-variants"></span>
+      </div>
+
+      <dl class="modal__readings">
+        <div class="modal__row">
+          <dt>日本語</dt>
+          <dd class="modal__reading">
+            <span id="modal-jp"></span>
+            <button type="button" class="speaker" id="speaker-jp" aria-label="Произнести по-японски" title="Произнести">
+              <svg class="speaker__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M11 5 6 9H3v6h3l5 4V5Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                <path class="speaker__wave speaker__wave--single" d="M15.5 9.5a4 4 0 0 1 0 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path class="speaker__wave speaker__wave--double" d="M15.5 8.5a5 5 0 0 1 0 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
+                <path class="speaker__wave speaker__wave--double" d="M18 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
+              </svg>
+            </button>
+          </dd>
+        </div>
+        <div class="modal__row">
+          <dt>中文</dt>
+          <dd class="modal__reading">
+            <span id="modal-cn"></span>
+            <button type="button" class="speaker" id="speaker-cn" aria-label="Произнести по-китайски" title="Произнести">
+              <svg class="speaker__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M11 5 6 9H3v6h3l5 4V5Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                <path class="speaker__wave speaker__wave--single" d="M15.5 9.5a4 4 0 0 1 0 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path class="speaker__wave speaker__wave--double" d="M15.5 8.5a5 5 0 0 1 0 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
+                <path class="speaker__wave speaker__wave--double" d="M18 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden/>
+              </svg>
+            </button>
+          </dd>
+        </div>
+        <div class="modal__row modal__row--wide">
+          <dt>Ключ</dt>
+          <dd id="modal-ru"></dd>
+        </div>
+      </dl>
+
+      <div class="modal__footer">
+        <span class="modal__strokes" id="modal-strokes"></span>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

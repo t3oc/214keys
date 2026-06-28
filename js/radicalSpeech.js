@@ -1,0 +1,269 @@
+import radicals from "./radicals.js";
+
+const MAX_VOICES = 8;
+const TRIM_THRESHOLD = 0.012;
+const TRIM_PAD_SEC = 0.004;
+const TRIM_TAIL_SEC = 0.012;
+const PITCH_MIN = 0.78;
+const PITCH_MAX = 1.38;
+const BATCH_SIZE = 6;
+const BATCH_GAP_MS = 16;
+
+/** @type {Map<number, number[]>} */
+const idsByStrokes = new Map();
+for (const item of radicals) {
+  const list = idsByStrokes.get(item.strokes) ?? [];
+  list.push(item.id);
+  idsByStrokes.set(item.strokes, list);
+}
+
+let audioContext = null;
+let masterGain = null;
+let activeSession = 0;
+
+/** @type {Map<string, AudioBuffer>} */
+const bufferCache = new Map();
+/** @type {Map<string, Promise<AudioBuffer | null>>} */
+const decodeFlights = new Map();
+/** @type {Set<string>} */
+const loadedGroups = new Set();
+/** @type {Map<string, Promise<void>>} */
+const groupLoads = new Map();
+
+/** @type {{ source: AudioBufferSourceNode, session: number, lang: string }[]} */
+const activeVoices = [];
+
+/** @type {Map<string, string>} */
+const lastSpeakKeyByLang = new Map();
+
+function padId(id) {
+  return String(id).padStart(3, "0");
+}
+
+export function audioUrl(lang, id) {
+  return `audio/${lang}/${padId(id)}.mp3`;
+}
+
+function speakKey(lang, id) {
+  return `${lang}:${id}`;
+}
+
+function groupKey(lang, strokes) {
+  return `${lang}:${strokes}`;
+}
+
+function randomPitchRate() {
+  return PITCH_MIN + Math.random() * (PITCH_MAX - PITCH_MIN);
+}
+
+function resolveUrl(url) {
+  try {
+    return new URL(url, window.location.href).href;
+  } catch {
+    return url;
+  }
+}
+
+function getAudioGraph() {
+  if (!audioContext) {
+    audioContext = new AudioContext();
+    masterGain = audioContext.createGain();
+    masterGain.gain.value = 1;
+    masterGain.connect(audioContext.destination);
+  }
+  return { ctx: audioContext, gain: masterGain };
+}
+
+export function unlockSpeech() {
+  const { ctx } = getAudioGraph();
+  if (ctx.state === "suspended") void ctx.resume();
+}
+
+function trimSampleBuffer(buffer, ctx) {
+  const channel = buffer.getChannelData(0);
+  if (channel.length === 0) return buffer;
+
+  let start = 0;
+  let end = channel.length;
+
+  for (let i = 0; i < channel.length; i++) {
+    if (Math.abs(channel[i]) > TRIM_THRESHOLD) {
+      start = Math.max(0, i - Math.floor(buffer.sampleRate * TRIM_PAD_SEC));
+      break;
+    }
+  }
+
+  for (let i = channel.length - 1; i >= start; i--) {
+    if (Math.abs(channel[i]) > TRIM_THRESHOLD) {
+      end = Math.min(channel.length, i + Math.floor(buffer.sampleRate * TRIM_TAIL_SEC));
+      break;
+    }
+  }
+
+  const length = end - start;
+  if (length <= 0 || (start === 0 && end === channel.length)) return buffer;
+
+  const trimmed = ctx.createBuffer(buffer.numberOfChannels, length, buffer.sampleRate);
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    trimmed.copyToChannel(buffer.getChannelData(ch).subarray(start, end), ch);
+  }
+  return trimmed;
+}
+
+function removeVoice(voice) {
+  const index = activeVoices.indexOf(voice);
+  if (index >= 0) activeVoices.splice(index, 1);
+  try {
+    voice.source.stop();
+  } catch {
+    /* already stopped */
+  }
+  voice.source.disconnect();
+}
+
+function stopSamplesForLang(lang) {
+  for (let i = activeVoices.length - 1; i >= 0; i--) {
+    if (activeVoices[i].lang === lang) removeVoice(activeVoices[i]);
+  }
+}
+
+async function decodeBuffer(url) {
+  const key = resolveUrl(url);
+  const cached = bufferCache.get(key);
+  if (cached) return cached;
+
+  const inflight = decodeFlights.get(key);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const bytes = await res.arrayBuffer();
+      const { ctx } = getAudioGraph();
+      const decoded = await ctx.decodeAudioData(bytes.slice(0));
+      const trimmed = trimSampleBuffer(decoded, ctx);
+      bufferCache.set(key, trimmed);
+      return trimmed;
+    } catch {
+      return null;
+    } finally {
+      decodeFlights.delete(key);
+    }
+  })();
+
+  decodeFlights.set(key, task);
+  return task;
+}
+
+function preloadBatch(urls) {
+  return Promise.all(urls.map((url) => decodeBuffer(url)));
+}
+
+export function ensureStrokeGroupLoaded(strokes, lang) {
+  const key = groupKey(lang, strokes);
+  if (loadedGroups.has(key)) return Promise.resolve();
+  const existing = groupLoads.get(key);
+  if (existing) return existing;
+
+  const ids = idsByStrokes.get(strokes) ?? [];
+  const urls = ids.map((id) => audioUrl(lang, id));
+
+  const task = (async () => {
+    let index = 0;
+    await new Promise((resolve) => {
+      const pump = () => {
+        const batch = urls.slice(index, index + BATCH_SIZE);
+        index += BATCH_SIZE;
+        void preloadBatch(batch).finally(() => {
+          if (index < urls.length) window.setTimeout(pump, BATCH_GAP_MS);
+          else resolve();
+        });
+      };
+      pump();
+    });
+    loadedGroups.add(key);
+  })().finally(() => {
+    groupLoads.delete(key);
+  });
+
+  groupLoads.set(key, task);
+  return task;
+}
+
+export function prefetchRadical(item, lang) {
+  unlockSpeech();
+  void decodeBuffer(audioUrl(lang, item.id));
+}
+
+function playSample(buffer, session, lang, onStart, onEnd) {
+  unlockSpeech();
+
+  while (activeVoices.length >= MAX_VOICES) {
+    removeVoice(activeVoices[0]);
+  }
+
+  const { ctx, gain } = getAudioGraph();
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = randomPitchRate();
+  source.connect(gain);
+
+  const voice = { source, session, lang };
+  activeVoices.push(voice);
+
+  source.onended = () => {
+    removeVoice(voice);
+    if (session === activeSession) onEnd();
+  };
+
+  source.start(0);
+  onStart();
+}
+
+export function speakRadical(item, lang, options = {}) {
+  const key = speakKey(lang, item.id);
+  const same = lastSpeakKeyByLang.get(lang) === key;
+
+  if (!same) {
+    stopSamplesForLang(lang);
+  }
+
+  lastSpeakKeyByLang.set(lang, key);
+
+  const session = ++activeSession;
+  let started = false;
+  let ended = false;
+
+  const onStart = () => {
+    if (session !== activeSession || started) return;
+    started = true;
+    options.onStart?.();
+  };
+
+  const onEnd = () => {
+    if (session !== activeSession || ended) return;
+    ended = true;
+    options.onEnd?.();
+  };
+
+  unlockSpeech();
+  void ensureStrokeGroupLoaded(item.strokes, lang);
+
+  const url = audioUrl(lang, item.id);
+  const cached = bufferCache.get(resolveUrl(url));
+  if (cached) {
+    playSample(cached, session, lang, onStart, onEnd);
+    return;
+  }
+
+  void decodeBuffer(url).then((buffer) => {
+    if (session !== activeSession) return;
+    if (buffer) playSample(buffer, session, lang, onStart, onEnd);
+    else onEnd();
+  });
+}
+
+export function isGroupLoaded(strokes, lang) {
+  return loadedGroups.has(groupKey(lang, strokes));
+}
