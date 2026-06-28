@@ -1,8 +1,7 @@
 import radicals from "./radicals.js";
 import {
-  ensureStrokeGroupLoaded,
+  isSampleLoading,
   isSampleReady,
-  prefetchRadical,
   speakRadical,
   unlockSpeech,
 } from "./radicalSpeech.js";
@@ -154,8 +153,6 @@ function wireSpeaker(btn, lang) {
     e.stopPropagation();
     if (!activeItem) return;
     unlockSpeech();
-    prefetchRadical(activeItem, lang);
-    void ensureStrokeGroupLoaded(activeItem.strokes, lang);
   });
 
   btn.addEventListener("click", (e) => {
@@ -164,21 +161,36 @@ function wireSpeaker(btn, lang) {
 
     unlockSpeech();
     const item = activeItem;
+    const needsWait = !isSampleReady(lang, item.id) || isSampleLoading(lang, item.id);
 
-    if (!isSampleReady(lang, item.id)) {
+    if (needsWait) {
       setSpeakerLoading(lang, true);
     }
 
-    speakRadical(item, lang, {
-      onStart: () => {
+    const runSpeak = () => {
+      if (!activeItem || activeItem.id !== item.id) {
         setSpeakerLoading(lang, false);
-        setSpeakerState(lang, true);
-      },
-      onEnd: () => {
-        setSpeakerLoading(lang, false);
-        setSpeakerState(lang, false);
-      },
-    });
+        return;
+      }
+
+      speakRadical(item, lang, {
+        onLoadStart: () => setSpeakerLoading(lang, true),
+        onStart: () => {
+          setSpeakerLoading(lang, false);
+          setSpeakerState(lang, true);
+        },
+        onEnd: () => {
+          setSpeakerLoading(lang, false);
+          setSpeakerState(lang, false);
+        },
+      });
+    };
+
+    if (needsWait) {
+      requestAnimationFrame(runSpeak);
+    } else {
+      runSpeak();
+    }
   });
 }
 

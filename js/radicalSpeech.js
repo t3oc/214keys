@@ -257,6 +257,8 @@ export function speakRadical(item, lang, options = {}) {
     return;
   }
 
+  options.onLoadStart?.();
+
   void decodeBuffer(url).then((buffer) => {
     if (session !== activeSession) return;
     if (buffer) playSample(buffer, session, lang, onStart, onEnd);
@@ -266,6 +268,10 @@ export function speakRadical(item, lang, options = {}) {
 
 export function isSampleReady(lang, id) {
   return bufferCache.has(resolveUrl(audioUrl(lang, id)));
+}
+
+export function isSampleLoading(lang, id) {
+  return decodeFlights.has(resolveUrl(audioUrl(lang, id)));
 }
 
 export function isGroupLoaded(strokes, lang) {
