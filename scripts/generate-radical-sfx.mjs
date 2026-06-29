@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getRadicalSfxRef, radicalSfxSourceUrl } from "../js/radicalSfx.js";
+import { getRadicalSfxDownload, getRadicalSfxRef, radicalSfxSourceUrl } from "../js/radicalSfx.js";
 import { getRadicalEmoji } from "../js/radicalEmoji.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -28,32 +28,52 @@ async function download(url) {
   if (!res.ok) return null;
   const bytes = await res.arrayBuffer();
   if (!bytes.byteLength) return null;
-  return Buffer.from(bytes);
+  const body = Buffer.from(bytes);
+  if (!isValidOgg(body)) return null;
+  return body;
+}
+
+function isValidOgg(body) {
+  return body.length >= 4 && body.toString("ascii", 0, 4) === "OggS";
 }
 
 async function downloadWithFallback(id) {
-  const primary = getRadicalSfxRef(id);
   const tried = new Set();
-  const candidates = [
-    primary,
-    ...FALLBACK.map(([pack, file]) => ({ pack, file })),
-  ];
+  /** @type {{ url: string, pack?: string, file?: string }[]} */
+  const candidates = [];
 
-  for (const { pack, file } of candidates) {
-    const key = `${pack}/${file}`;
+  const primary = getRadicalSfxDownload(id);
+  if (primary.kind === "external") {
+    candidates.push({ url: primary.url });
+  } else {
+    candidates.push({
+      url: sourceUrl(primary.pack, primary.file),
+      pack: primary.pack,
+      file: primary.file,
+    });
+  }
+
+  const { pack, file } = getRadicalSfxRef(id);
+  candidates.push({ url: sourceUrl(pack, file), pack, file });
+
+  for (const fb of FALLBACK) {
+    candidates.push({ url: sourceUrl(fb[0], fb[1]), pack: fb[0], file: fb[1] });
+  }
+
+  for (const candidate of candidates) {
+    const key = candidate.pack ? `${candidate.pack}/${candidate.file}` : candidate.url;
     if (tried.has(key)) continue;
     tried.add(key);
 
-    const url = sourceUrl(pack, file);
     try {
-      const body = await download(url);
+      const body = await download(candidate.url);
       if (!body) {
-        console.warn(`  miss ${padId(id)}: ${url}`);
+        console.warn(`  miss ${padId(id)}: ${candidate.url}`);
         continue;
       }
-      return { pack, file, url, body };
+      return { ...candidate, body };
     } catch (err) {
-      console.warn(`  fail ${padId(id)}: ${url} (${err.message})`);
+      console.warn(`  fail ${padId(id)}: ${candidate.url} (${err.message})`);
     }
   }
 
@@ -74,19 +94,23 @@ async function main() {
     const expectedUrl = radicalSfxSourceUrl(id);
 
     if (existsSync(outPath)) {
-      skipped++;
-      manifest.push({
-        id,
-        emoji,
-        file: `${padId(id)}.ogg`,
-        source: expectedUrl,
-        skipped: true,
-      });
-      console.log(`[${id}/214] skip ${padId(id)}.ogg (${emoji})`);
-      continue;
+      const existing = readFileSync(outPath);
+      if (isValidOgg(existing)) {
+        skipped++;
+        manifest.push({
+          id,
+          emoji,
+          file: `${padId(id)}.ogg`,
+          source: expectedUrl,
+          skipped: true,
+        });
+        console.log(`[${id}/214] skip ${padId(id)}.ogg (${emoji})`);
+        continue;
+      }
+      console.log(`[${id}/214] replace invalid ${padId(id)}.ogg (${emoji})`);
+    } else {
+      console.log(`[${id}/214] fetch ${padId(id)}.ogg (${emoji})`);
     }
-
-    console.log(`[${id}/214] fetch ${padId(id)}.ogg (${emoji})`);
     const result = await downloadWithFallback(id);
     if (!result) {
       failed++;

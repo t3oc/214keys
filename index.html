@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/style.css?v=8">
   <script>
     (function () {
-      var BUILD = "9";
+      var BUILD = "10";
       try {
         var buildKey = "214keys-build";
         var savedBuild = localStorage.getItem(buildKey);
@@ -203,6 +203,15 @@
           <div class="modal__footer">
             <span class="modal__strokes" id="modal-strokes"></span>
           </div>
+        </div>
+        <div class="modal__copy-toast" id="modal-copy-toast" role="status" aria-live="polite" aria-label="Скопировано в буфер обмена">
+          <svg class="modal__copy-toast-icon modal__copy-toast-icon--copy" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="8" y="8" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M6 16V5a1.5 1.5 0 0 1 1.5-1.5H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <svg class="modal__copy-toast-icon modal__copy-toast-icon--done" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 12.5 10 16.5 18 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </div>
         </div>
 

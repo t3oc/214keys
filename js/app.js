@@ -15,6 +15,7 @@ import {
   isSampleLoading,
   isSampleReady,
   loadSamplePeaks,
+  initAudioPreload,
   playRadicalSfx,
   playPop,
   speakRadical,
@@ -62,7 +63,10 @@ const fields = {
   cn: document.getElementById("modal-cn"),
   ru: document.getElementById("modal-ru"),
   strokes: document.getElementById("modal-strokes"),
+  copyToast: document.getElementById("modal-copy-toast"),
 };
+
+let copyToastTimer = 0;
 
 let activeItem = null;
 let visibleItems = radicals;
@@ -340,13 +344,54 @@ function updateModalNav() {
   updateStrokeGroupNav();
 }
 
+function hideCopyToast() {
+  if (copyToastTimer) {
+    window.clearTimeout(copyToastTimer);
+    copyToastTimer = 0;
+  }
+  fields.copyToast?.classList.remove("is-visible");
+}
+
+function showCopyToast() {
+  if (!fields.copyToast) return;
+  fields.copyToast.classList.add("is-visible");
+  if (copyToastTimer) window.clearTimeout(copyToastTimer);
+  copyToastTimer = window.setTimeout(hideCopyToast, 2400);
+}
+
+async function copyHeroCharToClipboard() {
+  if (!activeItem?.char) return false;
+
+  const text = activeItem.char;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 function fillModal(item) {
   activeItem = item;
   resetSpeakers();
+  hideCopyToast();
 
   fields.num.textContent = `#${item.id} · 部首 ${item.id}`;
   fields.char.textContent = item.char;
-  fields.charWrap?.setAttribute("aria-label", `Ключ ${item.char}`);
+  fields.charWrap?.setAttribute("aria-label", `Ключ ${item.char}, скопировать в буфер`);
   fields.variants.textContent = item.variants
     ? `варианты: ${item.variants.split(/\s+/).join(" · ")}`
     : "";
@@ -549,10 +594,17 @@ function isPointInViewport(clientX, clientY) {
 function applyMinimapTransform() {
   const gridW = modalMapGrid.offsetWidth;
   const gridH = modalMapGrid.offsetHeight;
-  if (!gridW || !gridH) return;
+  const stageW = modalMapStage.clientWidth;
+  const stageH = modalMapStage.clientHeight;
+  if (!gridW || !gridH || !stageW || !stageH) return;
 
   modalMapFit.style.width = `${gridW}px`;
   modalMapFit.style.height = `${gridH}px`;
+
+  const scaledW = gridW * minimapBaseScale;
+  const scaledH = gridH * minimapBaseScale;
+  modalMapFit.style.left = `${Math.max(0, (stageW - scaledW) / 2)}px`;
+  modalMapFit.style.top = `${Math.max(0, (stageH - scaledH) / 2)}px`;
   modalMapFit.style.transform = `scale(${minimapBaseScale})`;
   modalMapFit.style.transformOrigin = "top left";
 }
@@ -571,6 +623,8 @@ function syncMinimapLayout() {
 
   modalMapFit.style.transform = "none";
   modalMapFit.style.height = "";
+  modalMapFit.style.left = "0";
+  modalMapFit.style.top = "0";
 
   const gridW = modalMapGrid.offsetWidth;
   const gridH = modalMapGrid.offsetHeight;
@@ -706,6 +760,7 @@ function closeModal() {
   clearSpeakerParticles();
   resetSpeakerParticlePalette();
   fields.charWrap?.classList.remove("modal__char-wrap--salute");
+  hideCopyToast();
   modalPrev.disabled = true;
   modalNext.disabled = true;
   modalGroupPrev.disabled = true;
@@ -966,6 +1021,9 @@ function triggerHeroCharSalute() {
   pulseHeroCharSpring();
   unlockSpeech();
   playRadicalSfx(activeItem.id);
+  void copyHeroCharToClipboard().then((ok) => {
+    if (ok) showCopyToast();
+  });
   try {
     burstHeroCharSalute(fields.charWrap, activeItem);
   } catch {
@@ -1021,6 +1079,10 @@ function wireHeroChar() {
     unlockSpeech();
   });
 
+  fields.charWrap.addEventListener("selectstart", (e) => {
+    e.preventDefault();
+  });
+
   fields.charWrap.addEventListener("click", (e) => {
     e.stopPropagation();
     triggerHeroCharSalute();
@@ -1036,6 +1098,7 @@ wireSpeaker(speakerJp, "jp");
 wireSpeaker(speakerCn, "cn");
 wireHeroChar();
 initSpeakerParticles();
+initAudioPreload();
 
 const THEME_KEY = "214keys-theme";
 const FONT_KEY = "214keys-font";

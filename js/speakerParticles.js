@@ -161,7 +161,7 @@ function spawnHeroParticle(root, center, item, opts = {}) {
     speedMin = 190,
     speedMax = 380,
   } = opts;
-  const ringRadius = rand(reducedMotion ? 52 : 72, reducedMotion ? 78 : 108);
+  const ringRadius = rand(reducedMotion ? 44 : 58, reducedMotion ? 66 : 88);
   const speed = reducedMotion ? rand(speedMin * 0.65, speedMax * 0.65) : rand(speedMin, speedMax);
   const el = document.createElement("span");
 

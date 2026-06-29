@@ -1,5 +1,5 @@
 import radicals from "./radicals.js";
-import { radicalSfxUrl } from "./radicalSfx.js";
+import { getHeroSfxMaxSec, radicalSfxUrl } from "./radicalSfx.js";
 
 const MAX_VOICES = 8;
 const TRIM_THRESHOLD = 0.012;
@@ -7,10 +7,15 @@ const TRIM_PAD_SEC = 0.004;
 const TRIM_TAIL_SEC = 0.012;
 const PITCH_MIN = 0.78;
 const PITCH_MAX = 1.38;
+const HERO_SFX_MAX_SEC = 0.42;
 export { PITCH_MIN, PITCH_MAX };
 
 const BATCH_SIZE = 6;
 const BATCH_GAP_MS = 16;
+const SFX_BATCH_SIZE = 14;
+const SFX_BATCH_GAP_MS = 8;
+const SPEECH_BATCH_SIZE = 4;
+const SPEECH_BATCH_GAP_MS = 24;
 
 /** @type {Map<number, number[]>} */
 const idsByStrokes = new Map();
@@ -113,12 +118,16 @@ export function playRadicalSfx(id) {
     const { ctx, gain } = getAudioGraph();
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.playbackRate.value = randomPitchRate();
+    const rate = randomPitchRate();
+    source.playbackRate.value = rate;
     const sfxGain = ctx.createGain();
     sfxGain.gain.value = 0.85;
     source.connect(sfxGain);
     sfxGain.connect(gain);
-    source.start();
+    const startAt = ctx.currentTime;
+    const audible = Math.min(buffer.duration / rate, getHeroSfxMaxSec(id));
+    source.start(startAt);
+    source.stop(startAt + audible);
   };
 
   if (cached) {
@@ -233,6 +242,72 @@ async function decodeBuffer(url) {
 
 function preloadBatch(urls) {
   return Promise.all(urls.map((url) => decodeBuffer(url)));
+}
+
+function pumpBatches(urls, batchSize, gapMs) {
+  return new Promise((resolve) => {
+    let index = 0;
+    const pump = () => {
+      const batch = urls.slice(index, index + batchSize);
+      index += batchSize;
+      void preloadBatch(batch).finally(() => {
+        if (index < urls.length) window.setTimeout(pump, gapMs);
+        else resolve();
+      });
+    };
+    pump();
+  });
+}
+
+let sfxPreloadPromise = null;
+let speechPreloadPromise = null;
+
+export function preloadAllRadicalSfx() {
+  if (sfxPreloadPromise) return sfxPreloadPromise;
+
+  const urls = radicals.map((item) => radicalSfxUrl(item.id));
+  sfxPreloadPromise = pumpBatches(urls, SFX_BATCH_SIZE, SFX_BATCH_GAP_MS);
+  return sfxPreloadPromise;
+}
+
+export function preloadAllSpeechSamples() {
+  if (speechPreloadPromise) return speechPreloadPromise;
+
+  const urls = [];
+  for (const item of radicals) {
+    urls.push(audioUrl("jp", item.id));
+    urls.push(audioUrl("cn", item.id));
+  }
+
+  speechPreloadPromise = pumpBatches(urls, SPEECH_BATCH_SIZE, SPEECH_BATCH_GAP_MS).then(() => {
+    for (const strokes of idsByStrokes.keys()) {
+      loadedGroups.add(groupKey("jp", strokes));
+      loadedGroups.add(groupKey("cn", strokes));
+    }
+  });
+
+  return speechPreloadPromise;
+}
+
+function scheduleSpeechPreload() {
+  const start = () => {
+    void preloadAllSpeechSamples();
+  };
+  if ("requestIdleCallback" in window) {
+    requestIdleCallback(start, { timeout: 1500 });
+  } else {
+    window.setTimeout(start, 0);
+  }
+}
+
+export function initAudioPreload() {
+  void preloadAllRadicalSfx();
+
+  if (document.readyState === "complete") {
+    scheduleSpeechPreload();
+  } else {
+    window.addEventListener("load", scheduleSpeechPreload, { once: true });
+  }
 }
 
 export function ensureStrokeGroupLoaded(strokes, lang) {
