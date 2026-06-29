@@ -463,7 +463,8 @@ body.is-modal-open {
   justify-content: center;
   gap: clamp(0.35rem, 2vw, 0.75rem);
   width: min(96vw, 32rem);
-  max-height: min(90vh, 100%);
+  max-height: min(calc(100vh - 2 * clamp(0.75rem, 3vw, 1.5rem)), 100%);
+  max-height: min(calc(100dvh - 2 * clamp(0.75rem, 3vw, 1.5rem)), 100%);
 }
 
 .modal__stack {
@@ -475,9 +476,13 @@ body.is-modal-open {
   min-width: 0;
   max-width: 26rem;
   width: 100%;
+  max-height: min(calc(100vh - 2 * clamp(0.75rem, 3vw, 1.5rem)), 100%);
+  max-height: min(calc(100dvh - 2 * clamp(0.75rem, 3vw, 1.5rem)), 100%);
+  min-height: 0;
 }
 
 .modal-group-nav {
+  flex-shrink: 0;
   align-self: center;
   display: inline-flex;
   align-items: center;
@@ -662,10 +667,13 @@ html[data-theme="dark"] .modal-map__viewport {
 
 .modal__card {
   position: relative;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   width: 100%;
-  height: var(--modal-card-height, min(78vh, 29rem));
-  max-height: var(--modal-card-height, min(78vh, 29rem));
+  min-height: 0;
+  height: var(--modal-card-height, min(calc(100vh - 11rem), 29rem));
+  max-height: var(--modal-card-height, min(calc(100vh - 11rem), 29rem));
+  height: var(--modal-card-height, min(calc(100dvh - 11rem), 29rem));
+  max-height: var(--modal-card-height, min(calc(100dvh - 11rem), 29rem));
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
@@ -938,6 +946,8 @@ html[data-theme="dark"] .modal-map__viewport {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal__row {
@@ -950,12 +960,12 @@ html[data-theme="dark"] .modal-map__viewport {
 .modal__row--wide {
   flex: 1 1 auto;
   min-height: 0;
-  align-items: start;
+  align-items: stretch;
 }
 
 .modal__ru-fit {
-  height: var(--modal-ru-height, 7.5rem);
-  min-height: var(--modal-ru-height, 7.5rem);
+  min-height: 4.5rem;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -1210,6 +1220,23 @@ html[data-theme="dark"] .modal-map__viewport {
   .modal-map {
     --map-panel-width: 12.5rem;
   }
+
+  .modal__card {
+    --modal-card-height: min(calc(100vh - 7.5rem), 29rem);
+    --modal-card-height: min(calc(100dvh - 7.5rem), 29rem);
+  }
+
+  .modal__inner {
+    padding: 1rem 1.15rem 0.75rem;
+  }
+
+  .modal__hero {
+    padding: 0.35rem 0 0.75rem;
+  }
+
+  .modal__char {
+    font-size: 3.25rem;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1242,8 +1269,12 @@ html[data-theme="dark"] .modal-map__viewport {
   }
 
   .modal__card {
-    --modal-card-height: min(82vh, 26rem);
-    --modal-ru-height: 6.25rem;
+    --modal-card-height: min(calc(100vh - 10rem), 29rem);
+    --modal-card-height: min(calc(100dvh - 10rem), 29rem);
+  }
+
+  .modal__inner {
+    padding: 1.35rem 1.15rem 1rem;
   }
 
   .modal__row {

@@ -217,7 +217,7 @@ export function getRadicalSfxDownload(id) {
 }
 
 export function radicalSfxUrl(id) {
-  return `audio/sfx/${padId(id)}.ogg`;
+  return `audio/sfx/${padId(id)}.mp3`;
 }
 
 export function radicalSfxSourceUrl(id) {

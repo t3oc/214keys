@@ -1,6 +1,17 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ffmpegStatic from "ffmpeg-static";
 import { getRadicalSfxDownload, getRadicalSfxRef, radicalSfxSourceUrl } from "../js/radicalSfx.js";
 import { getRadicalEmoji } from "../js/radicalEmoji.js";
 
@@ -23,7 +34,50 @@ function sourceUrl(pack, file) {
   return `${KENNEY}/${encodeURI(pack)}/${encodeURIComponent(file)}`;
 }
 
-async function download(url) {
+function isValidOgg(body) {
+  return body.length >= 4 && body.toString("ascii", 0, 4) === "OggS";
+}
+
+function isValidMp3(body) {
+  if (body.length < 4) return false;
+  if (body[0] === 0x49 && body[1] === 0x44 && body[2] === 0x33) return true;
+  return body[0] === 0xff && (body[1] & 0xe0) === 0xe0;
+}
+
+function oggToMp3(oggBuffer) {
+  if (!ffmpegStatic) {
+    console.error("ffmpeg-static binary not found");
+    return null;
+  }
+
+  const dir = mkdtempSync(join(tmpdir(), "214keys-sfx-"));
+  const oggPath = join(dir, "in.ogg");
+  const mp3Path = join(dir, "out.mp3");
+
+  try {
+    writeFileSync(oggPath, oggBuffer);
+    const result = spawnSync(
+      ffmpegStatic,
+      ["-y", "-i", oggPath, "-codec:a", "libmp3lame", "-qscale:a", "4", mp3Path],
+      { stdio: "pipe" },
+    );
+    if (result.status !== 0) return null;
+    const mp3 = readFileSync(mp3Path);
+    return isValidMp3(mp3) ? mp3 : null;
+  } catch {
+    return null;
+  } finally {
+    for (const file of [oggPath, mp3Path]) {
+      try {
+        unlinkSync(file);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+async function downloadOgg(url) {
   const res = await fetch(url);
   if (!res.ok) return null;
   const bytes = await res.arrayBuffer();
@@ -31,10 +85,6 @@ async function download(url) {
   const body = Buffer.from(bytes);
   if (!isValidOgg(body)) return null;
   return body;
-}
-
-function isValidOgg(body) {
-  return body.length >= 4 && body.toString("ascii", 0, 4) === "OggS";
 }
 
 async function downloadWithFallback(id) {
@@ -66,7 +116,7 @@ async function downloadWithFallback(id) {
     tried.add(key);
 
     try {
-      const body = await download(candidate.url);
+      const body = await downloadOgg(candidate.url);
       if (!body) {
         console.warn(`  miss ${padId(id)}: ${candidate.url}`);
         continue;
@@ -80,6 +130,21 @@ async function downloadWithFallback(id) {
   return null;
 }
 
+function loadOggForId(id) {
+  const oggPath = join(outDir, `${padId(id)}.ogg`);
+  if (!existsSync(oggPath)) return null;
+  const body = readFileSync(oggPath);
+  return isValidOgg(body) ? body : null;
+}
+
+function removeLegacyOggFiles() {
+  for (const name of readdirSync(outDir)) {
+    if (name.endsWith(".ogg")) {
+      unlinkSync(join(outDir, name));
+    }
+  }
+}
+
 async function main() {
   mkdirSync(outDir, { recursive: true });
 
@@ -89,47 +154,67 @@ async function main() {
   let failed = 0;
 
   for (let id = 1; id <= 214; id++) {
-    const outPath = join(outDir, `${padId(id)}.ogg`);
+    const outPath = join(outDir, `${padId(id)}.mp3`);
     const emoji = getRadicalEmoji(id);
     const expectedUrl = radicalSfxSourceUrl(id);
 
     if (existsSync(outPath)) {
       const existing = readFileSync(outPath);
-      if (isValidOgg(existing)) {
+      if (isValidMp3(existing)) {
         skipped++;
         manifest.push({
           id,
           emoji,
-          file: `${padId(id)}.ogg`,
+          file: `${padId(id)}.mp3`,
           source: expectedUrl,
           skipped: true,
         });
-        console.log(`[${id}/214] skip ${padId(id)}.ogg (${emoji})`);
+        console.log(`[${id}/214] skip ${padId(id)}.mp3 (${emoji})`);
         continue;
       }
-      console.log(`[${id}/214] replace invalid ${padId(id)}.ogg (${emoji})`);
+      console.log(`[${id}/214] replace invalid ${padId(id)}.mp3 (${emoji})`);
     } else {
-      console.log(`[${id}/214] fetch ${padId(id)}.ogg (${emoji})`);
+      console.log(`[${id}/214] build ${padId(id)}.mp3 (${emoji})`);
     }
-    const result = await downloadWithFallback(id);
-    if (!result) {
+
+    let ogg = loadOggForId(id);
+    let source = expectedUrl;
+    let pack;
+    let kenneyFile;
+
+    if (!ogg) {
+      const result = await downloadWithFallback(id);
+      if (!result) {
+        failed++;
+        manifest.push({ id, emoji, error: "download failed", source: expectedUrl });
+        continue;
+      }
+      ogg = result.body;
+      source = result.url;
+      pack = result.pack;
+      kenneyFile = result.file;
+    }
+
+    const mp3 = oggToMp3(ogg);
+    if (!mp3) {
       failed++;
-      manifest.push({ id, emoji, error: "download failed", source: expectedUrl });
+      manifest.push({ id, emoji, error: "mp3 conversion failed", source });
       continue;
     }
 
-    await writeFileSync(outPath, result.body);
+    writeFileSync(outPath, mp3);
     created++;
     manifest.push({
       id,
       emoji,
-      file: `${padId(id)}.ogg`,
-      pack: result.pack,
-      kenneyFile: result.file,
-      source: result.url,
+      file: `${padId(id)}.mp3`,
+      pack,
+      kenneyFile,
+      source,
     });
   }
 
+  removeLegacyOggFiles();
   writeFileSync(join(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
   console.log(`\nDone: ${created} created, ${skipped} skipped, ${failed} failed`);

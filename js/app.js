@@ -719,6 +719,7 @@ function selectRadical(item) {
 }
 
 function openModal(item) {
+  unlockSpeech();
   visibleItems = getVisibleItems();
   fillModal(item);
 
@@ -808,9 +809,17 @@ function createGridFragment(items, onCellClick) {
     ch.textContent = item.char;
 
     btn.append(num, ch);
+    btn.addEventListener(
+      "touchstart",
+      () => {
+        unlockSpeech();
+      },
+      { passive: true },
+    );
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      unlockSpeech();
       if (shouldSuppressMapClick()) return;
       onCellClick(item);
     });

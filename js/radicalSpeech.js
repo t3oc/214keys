@@ -20,8 +20,25 @@ let activeSession = 0;
 
 /** @type {Map<string, AudioBuffer>} */
 const bufferCache = new Map();
+/** @type {Map<string, ArrayBuffer>} */
+const bytesCache = new Map();
 /** @type {Map<string, Promise<AudioBuffer | null>>} */
 const decodeFlights = new Map();
+/** @type {Map<string, Promise<ArrayBuffer | null>>} */
+const bytesFetchFlights = new Map();
+
+let unlockTask = null;
+let audioUnlocked = false;
+let backgroundDecodeStarted = false;
+
+const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+
+const isIOSAudio =
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+/** @type {{ audio: HTMLAudioElement, session: number, lang: string }[]} */
+const htmlVoices = [];
 
 /** @type {{ source: AudioBufferSourceNode, session: number, lang: string }[]} */
 const activeVoices = [];
@@ -55,7 +72,8 @@ function resolveUrl(url) {
 
 function getAudioGraph() {
   if (!audioContext) {
-    audioContext = new AudioContext();
+    if (!AudioContextCtor) return null;
+    audioContext = new AudioContextCtor();
     masterGain = audioContext.createGain();
     masterGain.gain.value = 1;
     masterGain.connect(audioContext.destination);
@@ -63,62 +81,132 @@ function getAudioGraph() {
   return { ctx: audioContext, gain: masterGain };
 }
 
+function syncUnlockAudio() {
+  const graph = getAudioGraph();
+  if (!graph) return;
+  const { ctx, gain } = graph;
+
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  if (!audioUnlocked) {
+    try {
+      const ping = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const source = ctx.createBufferSource();
+      source.buffer = ping;
+      source.connect(gain);
+      source.start(0);
+    } catch {
+      /* ignore */
+    }
+    audioUnlocked = true;
+    startBackgroundDecode();
+  }
+}
+
+async function doUnlock() {
+  syncUnlockAudio();
+  const graph = getAudioGraph();
+  if (!graph) return;
+
+  if (graph.ctx.state === "suspended") {
+    await graph.ctx.resume();
+  }
+
+  audioUnlocked = true;
+  startBackgroundDecode();
+}
+
 export function unlockSpeech() {
-  const { ctx } = getAudioGraph();
-  if (ctx.state === "suspended") void ctx.resume();
+  syncUnlockAudio();
+
+  const graph = getAudioGraph();
+  if (!graph) return Promise.resolve();
+
+  if (graph.ctx.state === "running") {
+    audioUnlocked = true;
+    startBackgroundDecode();
+    return Promise.resolve();
+  }
+
+  if (!unlockTask) {
+    unlockTask = doUnlock().finally(() => {
+      unlockTask = null;
+    });
+  }
+  return unlockTask;
+}
+
+function installGlobalAudioUnlock() {
+  const touch = () => {
+    syncUnlockAudio();
+  };
+  document.addEventListener("touchstart", touch, { passive: true, capture: true });
+  document.addEventListener("touchend", touch, { passive: true, capture: true });
+  document.addEventListener("pointerdown", touch, { passive: true, capture: true });
+  document.addEventListener("click", touch, { passive: true, capture: true });
 }
 
 export function playPop() {
-  unlockSpeech();
-  const { ctx, gain } = getAudioGraph();
-  const t0 = ctx.currentTime;
-  const rate = randomPitchRate();
-  const osc = ctx.createOscillator();
-  const popGain = ctx.createGain();
+  syncUnlockAudio();
+  void unlockSpeech().then(() => {
+    const graph = getAudioGraph();
+    if (!graph) return;
+    const { ctx, gain } = graph;
+    const t0 = ctx.currentTime;
+    const rate = randomPitchRate();
+    const osc = ctx.createOscillator();
+    const popGain = ctx.createGain();
 
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(640 * rate, t0);
-  osc.frequency.exponentialRampToValueAtTime(Math.max(40, 180 * rate), t0 + 0.085);
-  popGain.gain.setValueAtTime(0.0001, t0);
-  popGain.gain.exponentialRampToValueAtTime(0.32, t0 + 0.006);
-  popGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(640 * rate, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, 180 * rate), t0 + 0.085);
+    popGain.gain.setValueAtTime(0.0001, t0);
+    popGain.gain.exponentialRampToValueAtTime(0.32, t0 + 0.006);
+    popGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
 
-  osc.connect(popGain);
-  popGain.connect(gain);
-  osc.start(t0);
-  osc.stop(t0 + 0.12);
+    osc.connect(popGain);
+    popGain.connect(gain);
+    osc.start(t0);
+    osc.stop(t0 + 0.12);
+  });
 }
 
 export function playRadicalSfx(id) {
-  unlockSpeech();
-  const url = radicalSfxUrl(id);
-  const key = resolveUrl(url);
-  const cached = bufferCache.get(key);
+  syncUnlockAudio();
+  void unlockSpeech().then(() => {
+    const url = radicalSfxUrl(id);
+    const key = resolveUrl(url);
+    const cached = bufferCache.get(key);
 
-  const playBuffer = (buffer) => {
-    const { ctx, gain } = getAudioGraph();
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const rate = randomPitchRate();
-    source.playbackRate.value = rate;
-    const sfxGain = ctx.createGain();
-    sfxGain.gain.value = 0.85;
-    source.connect(sfxGain);
-    sfxGain.connect(gain);
-    const startAt = ctx.currentTime;
-    const audible = Math.min(buffer.duration / rate, getHeroSfxMaxSec(id));
-    source.start(startAt);
-    source.stop(startAt + audible);
-  };
+    const playBuffer = (buffer) => {
+      const graph = getAudioGraph();
+      if (!graph) return;
+      const { ctx, gain } = graph;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const rate = randomPitchRate();
+      source.playbackRate.value = rate;
+      const sfxGain = ctx.createGain();
+      sfxGain.gain.value = 0.85;
+      source.connect(sfxGain);
+      sfxGain.connect(gain);
+      const startAt = ctx.currentTime;
+      const audible = Math.min(buffer.duration / rate, getHeroSfxMaxSec(id));
+      source.start(startAt);
+      source.stop(startAt + audible);
+    };
 
-  if (cached) {
-    playBuffer(cached);
-    return;
-  }
+    if (cached) {
+      playBuffer(cached);
+      return;
+    }
 
-  void decodeBuffer(url).then((buffer) => {
-    if (buffer) playBuffer(buffer);
-    else playPop();
+    void decodeBuffer(url).then((buffer) => {
+      if (buffer) playBuffer(buffer);
+      else playPop();
+    });
   });
 }
 
@@ -169,6 +257,61 @@ function stopSamplesForLang(lang) {
   for (let i = activeVoices.length - 1; i >= 0; i--) {
     if (activeVoices[i].lang === lang) removeVoice(activeVoices[i]);
   }
+  for (let i = htmlVoices.length - 1; i >= 0; i--) {
+    if (htmlVoices[i].lang === lang) {
+      htmlVoices[i].audio.pause();
+      htmlVoices.splice(i, 1);
+    }
+  }
+}
+
+function playHtmlSample(url, rate, session, lang, onStart, onEnd, onProgress) {
+  while (htmlVoices.length >= MAX_VOICES) {
+    const old = htmlVoices.shift();
+    old.audio.pause();
+  }
+
+  const audio = new Audio(url);
+  audio.playbackRate = rate;
+  audio.preservesPitch = false;
+  audio.webkitPreservesPitch = false;
+
+  const voice = { audio, session, lang };
+  htmlVoices.push(voice);
+
+  let started = false;
+  let finished = false;
+
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    const index = htmlVoices.indexOf(voice);
+    if (index >= 0) htmlVoices.splice(index, 1);
+    onProgress?.(1);
+    if (session === activeSession) onEnd();
+  };
+
+  audio.addEventListener(
+    "playing",
+    () => {
+      if (session !== activeSession || started) return;
+      started = true;
+      onStart(rate);
+    },
+    { once: true },
+  );
+
+  if (onProgress) {
+    audio.addEventListener("timeupdate", () => {
+      if (session !== activeSession || !audio.duration) return;
+      onProgress(Math.min(1, audio.currentTime / audio.duration));
+    });
+  }
+
+  audio.addEventListener("ended", finish, { once: true });
+  audio.addEventListener("error", finish, { once: true });
+
+  void audio.play().catch(finish);
 }
 
 /** @type {Map<string, Float32Array>} */
@@ -192,6 +335,46 @@ function computePeaks(buffer, bars = 140) {
   return peaks;
 }
 
+async function fetchBytes(url) {
+  const key = resolveUrl(url);
+  const cached = bytesCache.get(key);
+  if (cached) return cached;
+
+  const inflight = bytesFetchFlights.get(key);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const bytes = await res.arrayBuffer();
+      if (!bytes.byteLength) return null;
+      bytesCache.set(key, bytes);
+      return bytes;
+    } catch {
+      return null;
+    } finally {
+      bytesFetchFlights.delete(key);
+    }
+  })();
+
+  bytesFetchFlights.set(key, task);
+  return task;
+}
+
+async function decodeBytes(key, bytes) {
+  const cached = bufferCache.get(key);
+  if (cached) return cached;
+
+  const graph = getAudioGraph();
+  if (!graph) return null;
+
+  const decoded = await graph.ctx.decodeAudioData(bytes.slice(0));
+  const trimmed = trimSampleBuffer(decoded, graph.ctx);
+  bufferCache.set(key, trimmed);
+  return trimmed;
+}
+
 async function decodeBuffer(url) {
   const key = resolveUrl(url);
   const cached = bufferCache.get(key);
@@ -202,14 +385,10 @@ async function decodeBuffer(url) {
 
   const task = (async () => {
     try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const bytes = await res.arrayBuffer();
-      const { ctx } = getAudioGraph();
-      const decoded = await ctx.decodeAudioData(bytes.slice(0));
-      const trimmed = trimSampleBuffer(decoded, ctx);
-      bufferCache.set(key, trimmed);
-      return trimmed;
+      const bytes = await fetchBytes(url);
+      if (!bytes) return null;
+      await unlockSpeech();
+      return await decodeBytes(key, bytes);
     } catch {
       return null;
     } finally {
@@ -222,7 +401,41 @@ async function decodeBuffer(url) {
 }
 
 function preloadBatch(urls) {
-  return Promise.all(urls.map((url) => decodeBuffer(url)));
+  return Promise.all(urls.map((url) => fetchBytes(url)));
+}
+
+function decodePrefetchedBatch(keys, batchSize, gapMs) {
+  return new Promise((resolve) => {
+    let index = 0;
+    const pump = () => {
+      const slice = keys.slice(index, index + batchSize);
+      index += batchSize;
+      void Promise.all(
+        slice.map(async (key) => {
+          if (bufferCache.has(key)) return;
+          const bytes = bytesCache.get(key);
+          if (!bytes) return;
+          try {
+            await decodeBytes(key, bytes);
+          } catch {
+            /* iOS may reject some codecs (e.g. OGG) */
+          }
+        }),
+      ).finally(() => {
+        if (index < keys.length) window.setTimeout(pump, gapMs);
+        else resolve();
+      });
+    };
+    pump();
+  });
+}
+
+function startBackgroundDecode() {
+  if (backgroundDecodeStarted) return;
+  backgroundDecodeStarted = true;
+  const keys = [...bytesCache.keys()].filter((key) => !bufferCache.has(key));
+  if (!keys.length) return;
+  void decodePrefetchedBatch(keys, SPEECH_BATCH_SIZE, SPEECH_BATCH_GAP_MS);
 }
 
 function pumpBatches(urls, batchSize, gapMs) {
@@ -265,6 +478,7 @@ export function preloadAllSpeechSamples() {
 }
 
 export function initAudioPreload() {
+  installGlobalAudioUnlock();
   void preloadAllRadicalSfx();
   void preloadAllSpeechSamples();
 }
@@ -274,13 +488,17 @@ function outputLatencySec(ctx) {
 }
 
 function playSample(buffer, session, lang, onStart, onEnd, onProgress) {
-  unlockSpeech();
+  const graph = getAudioGraph();
+  if (!graph) {
+    onEnd();
+    return;
+  }
 
   while (activeVoices.length >= MAX_VOICES) {
     removeVoice(activeVoices[0]);
   }
 
-  const { ctx, gain } = getAudioGraph();
+  const { ctx, gain } = graph;
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   const rate = randomPitchRate();
@@ -374,24 +592,33 @@ export function speakRadical(item, lang, options = {}) {
     options.onEnd?.();
   };
 
-  unlockSpeech();
+  syncUnlockAudio();
+  void unlockSpeech().then(() => {
+    const url = audioUrl(lang, item.id);
+    const resolved = resolveUrl(url);
 
-  const url = audioUrl(lang, item.id);
-  const cached = bufferCache.get(resolveUrl(url));
-  if (cached) {
-    playSample(cached, session, lang, onStart, onEnd, options.onProgress);
-    return;
-  }
-
-  options.onLoadStart?.();
-
-  void decodeBuffer(url).then((buffer) => {
-    if (session !== activeSession) {
-      if (!started) options.onEnd?.();
+    if (isIOSAudio) {
+      options.onLoadStart?.();
+      playHtmlSample(resolved, randomPitchRate(), session, lang, onStart, onEnd, options.onProgress);
       return;
     }
-    if (buffer) playSample(buffer, session, lang, onStart, onEnd, options.onProgress);
-    else onEnd();
+
+    const cached = bufferCache.get(resolved);
+    if (cached) {
+      playSample(cached, session, lang, onStart, onEnd, options.onProgress);
+      return;
+    }
+
+    options.onLoadStart?.();
+
+    void decodeBuffer(url).then((buffer) => {
+      if (session !== activeSession) {
+        if (!started) options.onEnd?.();
+        return;
+      }
+      if (buffer) playSample(buffer, session, lang, onStart, onEnd, options.onProgress);
+      else onEnd();
+    });
   });
 }
 
@@ -416,9 +643,13 @@ export async function loadSamplePeaks(lang, id, bars = 140) {
 }
 
 export function isSampleReady(lang, id) {
-  return bufferCache.has(resolveUrl(audioUrl(lang, id)));
+  const key = resolveUrl(audioUrl(lang, id));
+  if (bufferCache.has(key)) return true;
+  if (isIOSAudio && bytesCache.has(key)) return true;
+  return false;
 }
 
 export function isSampleLoading(lang, id) {
-  return decodeFlights.has(resolveUrl(audioUrl(lang, id)));
+  const key = resolveUrl(audioUrl(lang, id));
+  return decodeFlights.has(key) || bytesFetchFlights.has(key);
 }
