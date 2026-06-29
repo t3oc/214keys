@@ -7,10 +7,18 @@ const JP_WHITE_CHANCE = 0.72;
 const THEME_EMOJI_CHANCE = 0.72;
 const CN_HUE_STEPS = 12;
 
+const isIOSUi =
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+const isMobileUi =
+  matchMedia("(pointer: coarse)").matches || isIOSUi;
+
 /** @type {ActiveParticle[]} */
 let particles = [];
 let rafId = 0;
 let lastTs = 0;
+let skipFrame = false;
 let reducedMotion = false;
 let cnPressIndex = 0;
 let heroPlaybackTimer = 0;
@@ -19,9 +27,10 @@ let heroPlaybackItem = null;
 
 const HERO_PLAYBACK_MS = 520;
 const HERO_PLAYBACK_MS_REDUCED = 900;
-const HERO_CLICK_LIFE_MS = 2600;
-const HERO_PLAYBACK_LIFE_MS = 1200;
-const MAX_PARTICLES = 1200;
+const HERO_CLICK_LIFE_MS = isIOSUi ? 820 : isMobileUi ? 1400 : 2600;
+const HERO_PLAYBACK_LIFE_MS = isIOSUi ? 680 : isMobileUi ? 900 : 1200;
+const MAX_PARTICLES = isIOSUi ? 48 : isMobileUi ? 120 : 1200;
+const COUNT_NORMAL = isIOSUi ? [3, 5] : [6, 10];
 let heroBurstSpin = 0;
 
 function collectGlyphs(item) {
@@ -140,11 +149,14 @@ const HERO_SUN_BASE = -Math.PI / 2;
 function heroSunSlots() {
   /** @type {{ kind: "emoji" | "glyph", angle: number }[]} */
   const slots = [];
+  const octants = isIOSUi ? 3 : isMobileUi ? 4 : 8;
 
-  for (let i = 0; i < 8; i++) {
-    const octant = HERO_SUN_BASE + i * HERO_OCTANT;
+  for (let i = 0; i < octants; i++) {
+    const octant = HERO_SUN_BASE + i * (Math.PI * 2 / octants);
     slots.push({ kind: "emoji", angle: octant });
-    slots.push({ kind: "glyph", angle: octant + HERO_SLOT });
+    if (!isMobileUi) {
+      slots.push({ kind: "glyph", angle: octant + HERO_SLOT });
+    }
   }
 
   return slots;
@@ -174,6 +186,7 @@ function spawnHeroParticle(root, center, item, opts = {}) {
   }
 
   root.appendChild(el);
+  el.style.fontSize = `${rand(sizeMin, sizeMax)}px`;
 
   const offsetX = Math.cos(angle) * ringRadius;
   const offsetY = Math.sin(angle) * ringRadius;
@@ -236,11 +249,8 @@ function applyParticleStyle(p, t) {
   const alpha = 1 - t;
   const scale = p.scale * (1 - t * 0.85);
   p.el.style.position = p.fixed ? "fixed" : "absolute";
-  p.el.style.left = `${p.x}px`;
-  p.el.style.top = `${p.y}px`;
-  p.el.style.fontSize = `${p.size}px`;
   p.el.style.opacity = String(Math.max(0, alpha));
-  p.el.style.transform = `translate(-50%, -50%) rotate(${p.rotation}deg) scale(${scale})`;
+  p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) translate(-50%, -50%) rotate(${p.rotation}deg) scale(${scale})`;
   if (p.fixed) p.el.style.zIndex = "1";
 }
 
@@ -256,6 +266,13 @@ function tick(ts) {
     stopLoop();
     return;
   }
+
+  if (isIOSUi && skipFrame) {
+    skipFrame = false;
+    rafId = requestAnimationFrame(tick);
+    return;
+  }
+  skipFrame = isIOSUi;
 
   const dt = lastTs ? Math.min(32, ts - lastTs) : 16;
   lastTs = ts;

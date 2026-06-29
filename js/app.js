@@ -18,6 +18,7 @@ import {
   initAudioPreload,
   playRadicalSfx,
   playPop,
+  prefetchItemAudio,
   speakRadical,
   unlockSpeech,
 } from "./radicalSpeech.js";
@@ -710,6 +711,7 @@ function unlockScroll() {
 }
 
 function selectRadical(item) {
+  prefetchItemAudio(item);
   fillModal(item);
   setActiveCell(item);
   requestAnimationFrame(() => {
@@ -720,6 +722,7 @@ function selectRadical(item) {
 
 function openModal(item) {
   unlockSpeech();
+  prefetchItemAudio(item);
   visibleItems = getVisibleItems();
   fillModal(item);
 

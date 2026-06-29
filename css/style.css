@@ -908,12 +908,15 @@ html[data-theme="dark"] .modal-map__viewport {
 
 .hero-particle {
   position: fixed;
+  left: 0;
+  top: 0;
   margin: 0;
   padding: 0;
   pointer-events: none;
   line-height: 1;
   user-select: none;
-  will-change: transform, opacity;
+  contain: layout style paint;
+  backface-visibility: hidden;
 }
 
 .hero-particles-burst {
@@ -1161,9 +1164,14 @@ html[data-theme="dark"] .modal-map__viewport {
   font-weight: 300;
   line-height: 1;
   user-select: none;
-  will-change: transform, opacity;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
+}
+
+@media (pointer: fine) {
+  .speaker-particle {
+    will-change: transform, opacity;
+  }
 }
 
 .speaker-particle--jp-white {

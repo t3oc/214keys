@@ -27,6 +27,9 @@ const decodeFlights = new Map();
 /** @type {Map<string, Promise<ArrayBuffer | null>>} */
 const bytesFetchFlights = new Map();
 
+/** @type {Map<string, string>} */
+const blobUrlCache = new Map();
+
 let unlockTask = null;
 let audioUnlocked = false;
 let backgroundDecodeStarted = false;
@@ -81,6 +84,25 @@ function getAudioGraph() {
   return { ctx: audioContext, gain: masterGain };
 }
 
+function getPlayableUrl(key, url) {
+  const bytes = bytesCache.get(key);
+  if (!bytes) return url;
+
+  let blobUrl = blobUrlCache.get(key);
+  if (!blobUrl) {
+    blobUrl = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+    blobUrlCache.set(key, blobUrl);
+  }
+  return blobUrl;
+}
+
+function warmIosPlayableUrls() {
+  if (!isIOSAudio) return;
+  for (const key of bytesCache.keys()) {
+    getPlayableUrl(key, key);
+  }
+}
+
 function syncUnlockAudio() {
   const graph = getAudioGraph();
   if (!graph) return;
@@ -101,6 +123,7 @@ function syncUnlockAudio() {
       /* ignore */
     }
     audioUnlocked = true;
+    warmIosPlayableUrls();
     startBackgroundDecode();
   }
 }
@@ -148,65 +171,62 @@ function installGlobalAudioUnlock() {
   document.addEventListener("click", touch, { passive: true, capture: true });
 }
 
+function playBufferNow(buffer, id) {
+  const graph = getAudioGraph();
+  if (!graph) return;
+  const { ctx, gain } = graph;
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  const rate = randomPitchRate();
+  source.playbackRate.value = rate;
+  const sfxGain = ctx.createGain();
+  sfxGain.gain.value = 0.85;
+  source.connect(sfxGain);
+  sfxGain.connect(gain);
+  const startAt = ctx.currentTime;
+  const audible = Math.min(buffer.duration / rate, getHeroSfxMaxSec(id));
+  source.start(startAt);
+  source.stop(startAt + audible);
+}
+
 export function playPop() {
   syncUnlockAudio();
-  void unlockSpeech().then(() => {
-    const graph = getAudioGraph();
-    if (!graph) return;
-    const { ctx, gain } = graph;
-    const t0 = ctx.currentTime;
-    const rate = randomPitchRate();
-    const osc = ctx.createOscillator();
-    const popGain = ctx.createGain();
+  const graph = getAudioGraph();
+  if (!graph) return;
+  const { ctx, gain } = graph;
+  const t0 = ctx.currentTime;
+  const rate = randomPitchRate();
+  const osc = ctx.createOscillator();
+  const popGain = ctx.createGain();
 
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(640 * rate, t0);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(40, 180 * rate), t0 + 0.085);
-    popGain.gain.setValueAtTime(0.0001, t0);
-    popGain.gain.exponentialRampToValueAtTime(0.32, t0 + 0.006);
-    popGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(640 * rate, t0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(40, 180 * rate), t0 + 0.085);
+  popGain.gain.setValueAtTime(0.0001, t0);
+  popGain.gain.exponentialRampToValueAtTime(0.32, t0 + 0.006);
+  popGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
 
-    osc.connect(popGain);
-    popGain.connect(gain);
-    osc.start(t0);
-    osc.stop(t0 + 0.12);
-  });
+  osc.connect(popGain);
+  popGain.connect(gain);
+  osc.start(t0);
+  osc.stop(t0 + 0.12);
 }
 
 export function playRadicalSfx(id) {
   syncUnlockAudio();
-  void unlockSpeech().then(() => {
-    const url = radicalSfxUrl(id);
-    const key = resolveUrl(url);
-    const cached = bufferCache.get(key);
+  const url = radicalSfxUrl(id);
+  const key = resolveUrl(url);
 
-    const playBuffer = (buffer) => {
-      const graph = getAudioGraph();
-      if (!graph) return;
-      const { ctx, gain } = graph;
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      const rate = randomPitchRate();
-      source.playbackRate.value = rate;
-      const sfxGain = ctx.createGain();
-      sfxGain.gain.value = 0.85;
-      source.connect(sfxGain);
-      sfxGain.connect(gain);
-      const startAt = ctx.currentTime;
-      const audible = Math.min(buffer.duration / rate, getHeroSfxMaxSec(id));
-      source.start(startAt);
-      source.stop(startAt + audible);
-    };
+  const cached = bufferCache.get(key);
+  if (cached) {
+    playBufferNow(cached, id);
+    return;
+  }
 
-    if (cached) {
-      playBuffer(cached);
-      return;
-    }
-
-    void decodeBuffer(url).then((buffer) => {
-      if (buffer) playBuffer(buffer);
-      else playPop();
-    });
+  playPop();
+  void fetchAndDecode(url).then(() => {
+    const buffer = bufferCache.get(key);
+    if (buffer) playBufferNow(buffer, id);
   });
 }
 
@@ -265,13 +285,14 @@ function stopSamplesForLang(lang) {
   }
 }
 
-function playHtmlSample(url, rate, session, lang, onStart, onEnd, onProgress) {
+function playHtmlSample(src, rate, session, lang, onStart, onEnd, onProgress) {
   while (htmlVoices.length >= MAX_VOICES) {
     const old = htmlVoices.shift();
     old.audio.pause();
   }
 
-  const audio = new Audio(url);
+  const audio = new Audio(src);
+  audio.preload = "auto";
   audio.playbackRate = rate;
   audio.preservesPitch = false;
   audio.webkitPreservesPitch = false;
@@ -387,7 +408,6 @@ async function decodeBuffer(url) {
     try {
       const bytes = await fetchBytes(url);
       if (!bytes) return null;
-      await unlockSpeech();
       return await decodeBytes(key, bytes);
     } catch {
       return null;
@@ -400,8 +420,22 @@ async function decodeBuffer(url) {
   return task;
 }
 
+async function fetchAndDecode(url) {
+  const key = resolveUrl(url);
+  if (bufferCache.has(key)) return;
+  const bytes = await fetchBytes(url);
+  if (!bytes) return;
+  try {
+    await decodeBytes(key, bytes);
+  } catch {
+    /* ignore unsupported or corrupt samples */
+  }
+}
+
 function preloadBatch(urls) {
-  return Promise.all(urls.map((url) => fetchBytes(url)));
+  return Promise.all(urls.map((url) => fetchAndDecode(url))).then(() => {
+    warmIosPlayableUrls();
+  });
 }
 
 function decodePrefetchedBatch(keys, batchSize, gapMs) {
@@ -593,32 +627,39 @@ export function speakRadical(item, lang, options = {}) {
   };
 
   syncUnlockAudio();
-  void unlockSpeech().then(() => {
-    const url = audioUrl(lang, item.id);
-    const resolved = resolveUrl(url);
+  const url = audioUrl(lang, item.id);
+  const resolved = resolveUrl(url);
 
-    if (isIOSAudio) {
-      options.onLoadStart?.();
-      playHtmlSample(resolved, randomPitchRate(), session, lang, onStart, onEnd, options.onProgress);
+  const cached = bufferCache.get(resolved);
+  if (cached) {
+    playSample(cached, session, lang, onStart, onEnd, options.onProgress);
+    return;
+  }
+
+  options.onLoadStart?.();
+
+  void decodeBuffer(url).then((buffer) => {
+    if (session !== activeSession) {
+      if (!started) options.onEnd?.();
       return;
     }
-
-    const cached = bufferCache.get(resolved);
-    if (cached) {
-      playSample(cached, session, lang, onStart, onEnd, options.onProgress);
+    if (buffer) {
+      playSample(buffer, session, lang, onStart, onEnd, options.onProgress);
       return;
     }
-
-    options.onLoadStart?.();
-
-    void decodeBuffer(url).then((buffer) => {
-      if (session !== activeSession) {
-        if (!started) options.onEnd?.();
-        return;
-      }
-      if (buffer) playSample(buffer, session, lang, onStart, onEnd, options.onProgress);
-      else onEnd();
-    });
+    if (isIOSAudio && bytesCache.has(resolved)) {
+      playHtmlSample(
+        getPlayableUrl(resolved, url),
+        randomPitchRate(),
+        session,
+        lang,
+        onStart,
+        onEnd,
+        options.onProgress,
+      );
+      return;
+    }
+    onEnd();
   });
 }
 
@@ -644,9 +685,13 @@ export async function loadSamplePeaks(lang, id, bars = 140) {
 
 export function isSampleReady(lang, id) {
   const key = resolveUrl(audioUrl(lang, id));
-  if (bufferCache.has(key)) return true;
-  if (isIOSAudio && bytesCache.has(key)) return true;
-  return false;
+  return bufferCache.has(key);
+}
+
+export function prefetchItemAudio(item) {
+  void fetchAndDecode(radicalSfxUrl(item.id));
+  void fetchAndDecode(audioUrl("jp", item.id));
+  void fetchAndDecode(audioUrl("cn", item.id));
 }
 
 export function isSampleLoading(lang, id) {
