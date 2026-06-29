@@ -1,4 +1,5 @@
 import radicals from "./radicals.js";
+import { radicalSfxUrl } from "./radicalSfx.js";
 
 const MAX_VOICES = 8;
 const TRIM_THRESHOLD = 0.012;
@@ -79,6 +80,56 @@ function getAudioGraph() {
 export function unlockSpeech() {
   const { ctx } = getAudioGraph();
   if (ctx.state === "suspended") void ctx.resume();
+}
+
+export function playPop() {
+  unlockSpeech();
+  const { ctx, gain } = getAudioGraph();
+  const t0 = ctx.currentTime;
+  const rate = randomPitchRate();
+  const osc = ctx.createOscillator();
+  const popGain = ctx.createGain();
+
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(640 * rate, t0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(40, 180 * rate), t0 + 0.085);
+  popGain.gain.setValueAtTime(0.0001, t0);
+  popGain.gain.exponentialRampToValueAtTime(0.32, t0 + 0.006);
+  popGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
+
+  osc.connect(popGain);
+  popGain.connect(gain);
+  osc.start(t0);
+  osc.stop(t0 + 0.12);
+}
+
+export function playRadicalSfx(id) {
+  unlockSpeech();
+  const url = radicalSfxUrl(id);
+  const key = resolveUrl(url);
+  const cached = bufferCache.get(key);
+
+  const playBuffer = (buffer) => {
+    const { ctx, gain } = getAudioGraph();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = randomPitchRate();
+    const sfxGain = ctx.createGain();
+    sfxGain.gain.value = 0.85;
+    source.connect(sfxGain);
+    sfxGain.connect(gain);
+    source.start();
+  };
+
+  if (cached) {
+    playBuffer(cached);
+    return;
+  }
+
+  void decodeBuffer(url).then((buffer) => {
+    if (buffer) playBuffer(buffer);
+    else playPop();
+  });
 }
 
 function trimSampleBuffer(buffer, ctx) {
@@ -338,7 +389,10 @@ export function speakRadical(item, lang, options = {}) {
   options.onLoadStart?.();
 
   void decodeBuffer(url).then((buffer) => {
-    if (session !== activeSession) return;
+    if (session !== activeSession) {
+      if (!started) options.onEnd?.();
+      return;
+    }
     if (buffer) playSample(buffer, session, lang, onStart, onEnd, options.onProgress);
     else onEnd();
   });

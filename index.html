@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/style.css?v=8">
   <script>
     (function () {
-      var BUILD = "8";
+      var BUILD = "9";
       try {
         var buildKey = "214keys-build";
         var savedBuild = localStorage.getItem(buildKey);
@@ -133,7 +133,9 @@
 
           <div class="modal__hero">
             <span class="modal__num" id="modal-num"></span>
-            <span class="modal__char" id="modal-char"></span>
+            <button type="button" class="modal__char-wrap" id="modal-char-wrap" aria-label="Нажать на ключ">
+              <span class="modal__char" id="modal-char"></span>
+            </button>
             <span class="modal__variants" id="modal-variants"></span>
           </div>
 
@@ -154,7 +156,7 @@
                     </button>
                     <span class="speaker-wait" id="speaker-wait-jp" aria-hidden="true">
                       <svg class="speaker-wait__spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="14 42"/>
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="16 38"/>
                       </svg>
                     </span>
                   </div>
@@ -180,7 +182,7 @@
                     </button>
                     <span class="speaker-wait" id="speaker-wait-cn" aria-hidden="true">
                       <svg class="speaker-wait__spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="14 42"/>
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="16 38"/>
                       </svg>
                     </span>
                   </div>
@@ -220,6 +222,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="js/app.js?v=8"></script>
+  <script type="module" src="js/app.js?v=9"></script>
 </body>
 </html>

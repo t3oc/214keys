@@ -394,6 +394,10 @@ body.is-modal-open {
   .speaker-wait__spinner {
     animation: none;
   }
+
+  .modal__char-wrap--salute .modal__char {
+    animation: hero-char-spring-reduced 0.35s ease-out;
+  }
 }
 
 .cell__num {
@@ -751,7 +755,80 @@ html[data-theme="dark"] .modal-map__viewport {
   letter-spacing: 0.1em;
 }
 
+.modal__char-wrap {
+  position: relative;
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: 10px;
+  transition: transform 0.12s ease;
+}
+
+.modal__char-wrap:hover .modal__char {
+  color: var(--text);
+}
+
+.modal__char-wrap:active {
+  transform: scale(0.97);
+}
+
+.modal__char-wrap:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring-strong);
+}
+
+.modal__char-wrap--playing .modal__char {
+  color: var(--speaker-active);
+}
+
+@keyframes hero-char-spring {
+  0% {
+    transform: scale(1);
+  }
+
+  32% {
+    transform: scale(1.1);
+  }
+
+  58% {
+    transform: scale(0.98);
+  }
+
+  78% {
+    transform: scale(1.03);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes hero-char-spring-reduced {
+  0% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.04);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.modal__char-wrap--salute .modal__char {
+  animation: hero-char-spring 0.55s cubic-bezier(0.34, 1.45, 0.64, 1);
+  transform-origin: center center;
+}
+
 .modal__char {
+  display: block;
   font-family: var(--font-han);
   font-size: 4.5rem;
   font-weight: 300;
@@ -759,8 +836,44 @@ html[data-theme="dark"] .modal-map__viewport {
   font-variation-settings: "wght" 300;
   line-height: 1.1;
   padding: 0.35rem 0.5rem;
+  color: var(--text);
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
+  transition: color 0.15s ease;
+  transform-origin: center center;
+}
+
+.hero-particles-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  overflow: visible;
+}
+
+.hero-particle {
+  position: fixed;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  line-height: 1;
+  user-select: none;
+  will-change: transform, opacity;
+}
+
+.hero-particles-burst {
+  display: none;
+}
+
+.hero-particle--emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
+.hero-particle--glyph {
+  font-family: var(--font-han);
+  font-weight: 300;
+  color: var(--speaker-active);
+  text-shadow: 0 2px 8px rgba(80, 60, 30, 0.18);
 }
 
 .modal__variants {
@@ -854,12 +967,15 @@ html[data-theme="dark"] .modal-map__viewport {
 }
 
 .speaker-slot--loading .speaker {
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
 }
 
 .speaker-slot--loading .speaker-wait {
-  display: inline-flex;
+  display: inline-flex !important;
+  visibility: visible;
+  opacity: 1;
 }
 
 .audio-wave {
@@ -941,8 +1057,8 @@ html[data-theme="dark"] .modal-map__viewport {
 
 .speaker-wait__spinner {
   display: block;
-  width: 0.85rem;
-  height: 0.85rem;
+  width: 0.95rem;
+  height: 0.95rem;
   transform-origin: 50% 50%;
   animation: speaker-spin 0.75s linear infinite;
 }

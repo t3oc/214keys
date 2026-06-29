@@ -2,16 +2,21 @@ import radicals from "./radicals.js";
 import { createReadingWaveform } from "./audioWaveform.js";
 import { applyPitchTint, clearPitchTint } from "./pitchTint.js";
 import {
+  burstHeroCharSalute,
+  burstHeroGlyphWhisper,
   burstSpeakerParticles,
   clearSpeakerParticles,
   initSpeakerParticles,
   resetSpeakerParticlePalette,
+  stopHeroPlaybackEmojis,
 } from "./speakerParticles.js";
 import {
   getSamplePeaks,
   isSampleLoading,
   isSampleReady,
   loadSamplePeaks,
+  playRadicalSfx,
+  playPop,
   speakRadical,
   unlockSpeech,
 } from "./radicalSpeech.js";
@@ -50,6 +55,7 @@ const modalMapViewport = document.getElementById("modal-map-viewport");
 const modalRuFit = document.querySelector(".modal__ru-fit");
 const fields = {
   num: document.getElementById("modal-num"),
+  charWrap: document.getElementById("modal-char-wrap"),
   char: document.getElementById("modal-char"),
   variants: document.getElementById("modal-variants"),
   jp: document.getElementById("modal-jp"),
@@ -162,13 +168,13 @@ function setSpeakerState(lang, active) {
   btn.classList.toggle("speaker--active", active);
   btn.setAttribute("aria-pressed", String(active));
   if (!active) clearPitchTint(pitchTintTargets(lang));
+  fields.charWrap?.classList.toggle("modal__char-wrap--playing", speaking.jp || speaking.cn);
 }
 
 function setSpeakerLoading(lang, loading) {
   const btn = lang === "jp" ? speakerJp : speakerCn;
   const wait = lang === "jp" ? speakerWaitJp : speakerWaitCn;
   const slot = btn.closest(".speaker-slot");
-  btn.disabled = loading;
   btn.setAttribute("aria-busy", String(loading));
   wait.setAttribute("aria-hidden", String(!loading));
   slot?.classList.toggle("speaker-slot--loading", loading);
@@ -218,7 +224,7 @@ function wireSpeaker(btn, lang) {
 
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (!activeItem || btn.getAttribute("aria-busy") === "true") return;
+    if (!activeItem) return;
 
     unlockSpeech();
     const item = activeItem;
@@ -239,7 +245,6 @@ function wireSpeaker(btn, lang) {
         onLoadStart: () => setSpeakerLoading(lang, true),
         onStart: (rate) => {
           setSpeakerLoading(lang, false);
-          burstSpeakerParticles(btn, lang, item);
           applyPitchTint(pitchTintTargets(lang), rate);
           setSpeakerState(lang, true);
           wave.setPlaying(true);
@@ -248,11 +253,18 @@ function wireSpeaker(btn, lang) {
             wave.setPeaks(peaks);
             wave.resize();
           }
+          try {
+            burstSpeakerParticles(btn, lang, item);
+            burstHeroGlyphWhisper(fields.charWrap, item);
+          } catch {
+            /* particles are optional */
+          }
         },
         onProgress: (t) => wave.setProgress(t),
         onEnd: () => {
           setSpeakerLoading(lang, false);
           setSpeakerState(lang, false);
+          if (!speaking.jp && !speaking.cn) stopHeroPlaybackEmojis();
           wave.setPlaying(false);
           wave.setProgress(0);
         },
@@ -272,6 +284,7 @@ function resetSpeakers() {
   setSpeakerState("cn", false);
   setSpeakerLoading("jp", false);
   setSpeakerLoading("cn", false);
+  stopHeroPlaybackEmojis();
   readingWaves.jp.setPlaying(false);
   readingWaves.cn.setPlaying(false);
   readingWaves.jp.setProgress(0);
@@ -333,6 +346,7 @@ function fillModal(item) {
 
   fields.num.textContent = `#${item.id} · 部首 ${item.id}`;
   fields.char.textContent = item.char;
+  fields.charWrap?.setAttribute("aria-label", `Ключ ${item.char}`);
   fields.variants.textContent = item.variants
     ? `варианты: ${item.variants.split(/\s+/).join(" · ")}`
     : "";
@@ -691,6 +705,7 @@ function closeModal() {
   resetReadingWaves();
   clearSpeakerParticles();
   resetSpeakerParticlePalette();
+  fields.charWrap?.classList.remove("modal__char-wrap--salute");
   modalPrev.disabled = true;
   modalNext.disabled = true;
   modalGroupPrev.disabled = true;
@@ -936,8 +951,31 @@ window.addEventListener("orientationchange", () => {
 
 modal.addEventListener("close", unlockScroll);
 
+function pulseHeroCharSpring() {
+  const wrap = fields.charWrap;
+  if (!wrap) return;
+
+  wrap.classList.remove("modal__char-wrap--salute");
+  void wrap.offsetWidth;
+  wrap.classList.add("modal__char-wrap--salute");
+}
+
+function triggerHeroCharSalute() {
+  if (!activeItem || !fields.charWrap) return;
+
+  pulseHeroCharSpring();
+  unlockSpeech();
+  playRadicalSfx(activeItem.id);
+  try {
+    burstHeroCharSalute(fields.charWrap, activeItem);
+  } catch {
+    /* particles are optional */
+  }
+}
+
 document.addEventListener("keydown", (e) => {
   if (!modal.open) return;
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
   if (e.key === "Escape") closeModal();
   if (e.key === "ArrowLeft") {
     e.preventDefault();
@@ -955,14 +993,48 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     navigateStrokeGroup(1);
   }
+  if (e.key === "1") {
+    e.preventDefault();
+    speakerJp.click();
+  }
+  if (e.key === "2") {
+    e.preventDefault();
+    speakerCn.click();
+  }
+  if (e.key === " ") {
+    const target = e.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+    e.preventDefault();
+    triggerHeroCharSalute();
+  }
 });
 
 searchInput.addEventListener("input", () => {
   render(filterRadicals(searchInput.value), searchInput.value);
 });
 
+function wireHeroChar() {
+  if (!fields.charWrap) return;
+
+  fields.charWrap.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    unlockSpeech();
+  });
+
+  fields.charWrap.addEventListener("click", (e) => {
+    e.stopPropagation();
+    triggerHeroCharSalute();
+  });
+
+  fields.char.addEventListener("animationend", (e) => {
+    if (e.animationName !== "hero-char-spring" && e.animationName !== "hero-char-spring-reduced") return;
+    fields.charWrap.classList.remove("modal__char-wrap--salute");
+  });
+}
+
 wireSpeaker(speakerJp, "jp");
 wireSpeaker(speakerCn, "cn");
+wireHeroChar();
 initSpeakerParticles();
 
 const THEME_KEY = "214keys-theme";
