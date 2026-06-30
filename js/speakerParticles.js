@@ -35,16 +35,19 @@ let heroBurstSeq = 0;
 
 /** @type {null | "full" | "simple"} */
 let heroRenderMode = null;
-let fpsMonitorActive = false;
-let fpsMonitorFrames = 0;
-let fpsMonitorSum = 0;
-let fpsMonitorLastTs = 0;
-let fpsMonitorWindowStart = 0;
+let fpsBenchmarkDone = false;
+let fpsBenchmarkActive = false;
+let fpsBenchmarkTapCount = 0;
+let fpsBenchmarkFinalizePending = false;
+let fpsBenchmarkFrames = 0;
+let fpsBenchmarkSum = 0;
+let fpsBenchmarkLastTs = 0;
+let fpsBenchmarkFinalizeTimer = 0;
 
 const HERO_RENDER_MODE_KEY = "214keys-hero-render";
-const FPS_PROBE_MS = 600;
+const FPS_BENCHMARK_TAPS = 2;
+const FPS_PROBE_MS = 750;
 const FPS_SIMPLE_THRESHOLD = 15;
-const FPS_FULL_THRESHOLD = 20;
 const FPS_FRAME_GAP_MAX = 250;
 const GLOBAL_MAX_PARTICLES = 64;
 const ECONOMY_MAX_PARTICLES = 6;
@@ -159,6 +162,7 @@ function isEconomyMode() {
   if (particleProfileName === "lowfps") return true;
   if (heroRenderMode === "simple") return true;
   if (heroRenderMode === "full") return false;
+  if (!fpsBenchmarkDone) return false;
   return particleProfileName === "android" || particleProfileName === "ios";
 }
 
@@ -176,6 +180,7 @@ function loadHeroRenderMode() {
     const saved = sessionStorage.getItem(HERO_RENDER_MODE_KEY);
     if (saved === "simple" || saved === "full") {
       heroRenderMode = saved;
+      fpsBenchmarkDone = true;
     }
   } catch {
     /* ignore */
@@ -200,49 +205,51 @@ function heroEffectProfile() {
   return PARTICLE_PROFILES.desktop;
 }
 
-function beginFpsMonitor() {
-  if (debugHeroRenderOverride) return;
-  fpsMonitorActive = true;
-  if (!fpsMonitorWindowStart) fpsMonitorWindowStart = performance.now();
+function finalizeFpsBenchmark() {
+  if (fpsBenchmarkDone || debugHeroRenderOverride) return;
+  fpsBenchmarkDone = true;
+  fpsBenchmarkActive = false;
+  fpsBenchmarkFinalizePending = false;
+  if (fpsBenchmarkFinalizeTimer) {
+    window.clearTimeout(fpsBenchmarkFinalizeTimer);
+    fpsBenchmarkFinalizeTimer = 0;
+  }
+
+  const avgFps =
+    fpsBenchmarkFrames > 0 ? 1000 / (fpsBenchmarkSum / fpsBenchmarkFrames) : FPS_SIMPLE_THRESHOLD;
+  heroRenderMode = avgFps < FPS_SIMPLE_THRESHOLD ? "simple" : "full";
+  saveHeroRenderMode(heroRenderMode);
+  if (heroRenderMode === "simple") trimParticles();
 }
 
-function updateFpsMonitor(ts) {
-  if (!fpsMonitorActive || debugHeroRenderOverride) return;
+function onHeroBenchmarkTap() {
+  if (debugHeroRenderOverride || fpsBenchmarkDone || heroRenderMode !== null) return;
 
-  if (fpsMonitorLastTs) {
-    const dt = ts - fpsMonitorLastTs;
+  fpsBenchmarkActive = true;
+  fpsBenchmarkTapCount += 1;
+
+  if (fpsBenchmarkTapCount < FPS_BENCHMARK_TAPS) return;
+
+  fpsBenchmarkFinalizePending = true;
+  if (fpsBenchmarkFinalizeTimer) window.clearTimeout(fpsBenchmarkFinalizeTimer);
+  fpsBenchmarkFinalizeTimer = window.setTimeout(finalizeFpsBenchmark, FPS_PROBE_MS);
+}
+
+function recordFpsBenchmark(ts) {
+  if (!fpsBenchmarkActive || fpsBenchmarkDone) return;
+
+  if (fpsBenchmarkLastTs) {
+    const dt = ts - fpsBenchmarkLastTs;
     if (dt > 0 && dt < FPS_FRAME_GAP_MAX) {
-      fpsMonitorSum += dt;
-      fpsMonitorFrames += 1;
+      fpsBenchmarkSum += dt;
+      fpsBenchmarkFrames += 1;
     }
   }
-  fpsMonitorLastTs = ts;
+  fpsBenchmarkLastTs = ts;
 
-  const elapsed = performance.now() - fpsMonitorWindowStart;
-  if (elapsed < FPS_PROBE_MS || fpsMonitorFrames < 4) return;
-
-  const avgFps = 1000 / (fpsMonitorSum / fpsMonitorFrames);
-  const prevMode = heroRenderMode;
-  let nextMode = heroRenderMode;
-
-  if (heroRenderMode !== "simple" && avgFps < FPS_SIMPLE_THRESHOLD) {
-    nextMode = "simple";
-  } else if (heroRenderMode === "simple" && avgFps >= FPS_FULL_THRESHOLD) {
-    nextMode = "full";
-  } else if (heroRenderMode === null) {
-    nextMode = avgFps < FPS_SIMPLE_THRESHOLD ? "simple" : "full";
+  if (fpsBenchmarkFinalizePending && fpsBenchmarkFrames >= 4) {
+    finalizeFpsBenchmark();
   }
-
-  if (nextMode !== prevMode) {
-    heroRenderMode = nextMode;
-    saveHeroRenderMode(nextMode);
-    if (nextMode === "simple") trimParticles();
-  }
-
-  fpsMonitorFrames = 0;
-  fpsMonitorSum = 0;
-  fpsMonitorWindowStart = performance.now();
-  fpsMonitorLastTs = 0;
 }
 
 export function getHeroRenderMode() {
@@ -566,7 +573,7 @@ function tick(ts) {
     return;
   }
 
-  updateFpsMonitor(ts);
+  recordFpsBenchmark(ts);
 
   const profile = heroEffectProfile();
   if (profile.skipFrame && skipFrame) {
@@ -613,7 +620,6 @@ function tick(ts) {
 }
 
 function startLoop() {
-  beginFpsMonitor();
   if (!rafId) {
     lastTs = 0;
     rafId = requestAnimationFrame(tick);
@@ -705,7 +711,7 @@ export function burstHeroGlyphWhisper(anchorEl, item) {
 }
 
 export function burstHeroCharSalute(anchorEl, item) {
-  beginFpsMonitor();
+  onHeroBenchmarkTap();
   heroBurstSpin += rand(0.06, 0.14);
   pushHeroBurst(anchorEl, item, "click");
 }
