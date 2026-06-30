@@ -7,11 +7,11 @@
   <title>214 ключей — 康熙部首</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300&family=Noto+Sans+SC:wght@300&family=Noto+Serif+SC:wght@300&family=Zen+Kaku+Gothic+New:wght@300&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=15">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@200..900&family=Noto+Sans+SC:wght@200..900&family=Noto+Serif+SC:wght@200..900&family=Zen+Kaku+Gothic+New:wght@300..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=16">
   <script>
     (function () {
-      var BUILD = "15";
+      var BUILD = "16";
       try {
         var buildKey = "214keys-build";
         var savedBuild = localStorage.getItem(buildKey);
@@ -64,15 +64,36 @@
         </button>
       </div>
 
-      <div class="font-toggle" role="group" aria-label="Шрифт иероглифов">
-        <button type="button" class="font-toggle__btn is-active" data-font="serif" aria-pressed="true">
-          <span class="font-toggle__sample font-toggle__sample--serif" aria-hidden="true">水</span>
-          Классика
-        </button>
-        <button type="button" class="font-toggle__btn" data-font="linear" aria-pressed="false">
-          <span class="font-toggle__sample font-toggle__sample--linear" aria-hidden="true">水</span>
-          Монолиния
-        </button>
+      <div class="font-settings">
+        <div class="font-toggle" role="group" aria-label="Шрифт иероглифов">
+          <button type="button" class="font-toggle__btn is-active" data-font="serif" aria-pressed="true">
+            <span class="font-toggle__sample font-toggle__sample--serif" aria-hidden="true">水</span>
+            Классика
+          </button>
+          <button type="button" class="font-toggle__btn" data-font="linear" aria-pressed="false">
+            <span class="font-toggle__sample font-toggle__sample--linear" aria-hidden="true">水</span>
+            Монолиния
+          </button>
+        </div>
+
+        <div class="font-weight-control">
+          <label class="font-weight-control__label" for="font-weight-slider">
+            <span>Толщина</span>
+            <span class="font-weight-control__value" id="font-weight-value">300</span>
+          </label>
+          <input
+            type="range"
+            id="font-weight-slider"
+            class="font-weight-control__slider"
+            min="200"
+            max="700"
+            step="50"
+            value="300"
+            aria-valuemin="200"
+            aria-valuemax="700"
+            aria-valuenow="300"
+          >
+        </div>
       </div>
     </div>
 
@@ -231,6 +252,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="js/app.js?v=15"></script>
+  <script type="module" src="js/app.js?v=16"></script>
 </body>
 </html>

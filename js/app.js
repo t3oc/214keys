@@ -1114,8 +1114,45 @@ initAudioPreload();
 
 const THEME_KEY = "214keys-theme";
 const FONT_KEY = "214keys-font";
+const FONT_WEIGHT_KEY = "214keys-font-weight";
 const themeButtons = document.querySelectorAll(".theme-toggle__btn");
 const fontButtons = document.querySelectorAll(".font-toggle__btn");
+const fontWeightSlider = document.getElementById("font-weight-slider");
+const fontWeightValue = document.getElementById("font-weight-value");
+
+function fontWeightBounds() {
+  return document.documentElement.dataset.font === "linear"
+    ? { min: 300, max: 700 }
+    : { min: 200, max: 700 };
+}
+
+function applyFontWeight(weight, { persist = true } = {}) {
+  const { min, max } = fontWeightBounds();
+  const next = Math.min(max, Math.max(min, Math.round(Number(weight) || 300)));
+
+  document.documentElement.style.setProperty("--font-han-weight", String(next));
+
+  if (fontWeightSlider) {
+    fontWeightSlider.min = String(min);
+    fontWeightSlider.max = String(max);
+    fontWeightSlider.value = String(next);
+    fontWeightSlider.setAttribute("aria-valuemin", String(min));
+    fontWeightSlider.setAttribute("aria-valuemax", String(max));
+    fontWeightSlider.setAttribute("aria-valuenow", String(next));
+  }
+
+  if (fontWeightValue) {
+    fontWeightValue.textContent = String(next);
+  }
+
+  if (persist) {
+    try {
+      localStorage.setItem(FONT_WEIGHT_KEY, String(next));
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 function applyTheme(mode) {
   const next = mode === "dark" ? "dark" : "light";
@@ -1145,6 +1182,7 @@ function applyFont(mode) {
   } catch {
     /* ignore */
   }
+  applyFontWeight(fontWeightSlider?.value ?? 300, { persist: false });
 }
 
 for (const btn of themeButtons) {
@@ -1154,6 +1192,10 @@ for (const btn of themeButtons) {
 for (const btn of fontButtons) {
   btn.addEventListener("click", () => applyFont(btn.dataset.font));
 }
+
+fontWeightSlider?.addEventListener("input", () => {
+  applyFontWeight(fontWeightSlider.value);
+});
 
 try {
   const savedTheme = localStorage.getItem(THEME_KEY);
@@ -1167,6 +1209,12 @@ try {
   applyFont(localStorage.getItem(FONT_KEY) || "serif");
 } catch {
   applyFont("serif");
+}
+
+try {
+  applyFontWeight(localStorage.getItem(FONT_WEIGHT_KEY) || 300);
+} catch {
+  applyFontWeight(300);
 }
 
 modalPrev.disabled = true;

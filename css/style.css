@@ -38,6 +38,7 @@
   --font-han-serif: "Noto Serif SC", "Noto Sans JP", "Yu Mincho", "SimSun", serif;
   --font-han-linear: "Zen Kaku Gothic New", "Noto Sans SC", "Noto Sans JP", sans-serif;
   --font-han: var(--font-han-serif);
+  --font-han-weight: 300;
   --font-ui: "Segoe UI", system-ui, sans-serif;
   --grid-columns: 9;
   --radius: 2px;
@@ -267,10 +268,58 @@ body.is-modal-open {
   margin-top: 0.55rem;
 }
 
+.font-settings {
+  margin-top: 0.55rem;
+}
+
+.font-settings .font-toggle {
+  margin-top: 0;
+}
+
+.font-weight-control {
+  margin-top: 0.45rem;
+  padding: 0.55rem 0.75rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.font-weight-control__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.font-weight-control__value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.font-weight-control__slider {
+  display: block;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--speaker-active);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.font-weight-control__slider:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring-strong);
+  border-radius: 999px;
+}
+
 .font-toggle__sample {
   font-size: 1.05rem;
   line-height: 1;
-  font-weight: 300;
+  font-weight: var(--font-han-weight);
+  font-variation-settings: "wght" var(--font-han-weight);
   font-synthesis: none;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
@@ -419,9 +468,9 @@ body.is-modal-open {
 .cell__char {
   font-family: var(--font-han);
   font-size: clamp(0.85rem, 62cqi, 2.45rem);
-  font-weight: 300;
+  font-weight: var(--font-han-weight);
   font-synthesis: none;
-  font-variation-settings: "wght" 300;
+  font-variation-settings: "wght" var(--font-han-weight);
   line-height: 1;
   letter-spacing: 0.02em;
   text-rendering: geometricPrecision;
@@ -842,9 +891,9 @@ html[data-theme="dark"] .modal-map__viewport {
   display: block;
   font-family: var(--font-han);
   font-size: 4.5rem;
-  font-weight: 300;
+  font-weight: var(--font-han-weight);
   font-synthesis: none;
-  font-variation-settings: "wght" 300;
+  font-variation-settings: "wght" var(--font-han-weight);
   line-height: 1.1;
   padding: 0.35rem 0.5rem;
   color: var(--text);
@@ -929,7 +978,8 @@ html[data-theme="dark"] .modal-map__viewport {
 
 .hero-particle--glyph {
   font-family: var(--font-han);
-  font-weight: 300;
+  font-weight: var(--font-han-weight);
+  font-variation-settings: "wght" var(--font-han-weight);
   color: var(--speaker-active);
   text-shadow: 0 2px 8px rgba(80, 60, 30, 0.18);
 }
@@ -939,7 +989,8 @@ html[data-theme="dark"] .modal-map__viewport {
   font-size: 0.85rem;
   color: var(--text-muted);
   font-family: var(--font-han);
-  font-weight: 300;
+  font-weight: var(--font-han-weight);
+  font-variation-settings: "wght" var(--font-han-weight);
 }
 
 .modal__readings {
@@ -1161,7 +1212,8 @@ html[data-theme="dark"] .modal-map__viewport {
   pointer-events: none;
   z-index: 1;
   font-family: var(--font-han);
-  font-weight: 300;
+  font-weight: var(--font-han-weight);
+  font-variation-settings: "wght" var(--font-han-weight);
   line-height: 1;
   user-select: none;
   text-rendering: geometricPrecision;
@@ -1203,7 +1255,8 @@ html[data-theme="dark"] .modal-map__viewport {
 #modal-jp,
 #modal-cn {
   font-family: var(--font-han);
-  font-weight: 300;
+  font-weight: var(--font-han-weight);
+  font-variation-settings: "wght" var(--font-han-weight);
   font-size: 1.15rem;
   letter-spacing: 0.04em;
 }
