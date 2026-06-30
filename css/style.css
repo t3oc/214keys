@@ -148,6 +148,24 @@ body.is-modal-open {
   letter-spacing: 0.04em;
 }
 
+.header__title-inner {
+  position: relative;
+  display: inline-block;
+}
+
+.header__build {
+  position: absolute;
+  top: 0.08em;
+  left: 100%;
+  margin-left: 0.14em;
+  font-size: 0.42em;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text-muted) 42%, transparent);
+}
+
 .header__subtitle {
   margin: 0.75rem auto 0;
   max-width: 28rem;

@@ -44,11 +44,12 @@ let fpsBenchmarkSum = 0;
 let fpsBenchmarkLastTs = 0;
 let fpsBenchmarkFinalizeTimer = 0;
 
-const HERO_RENDER_MODE_KEY = "214keys-hero-render-v2";
-const LEGACY_HERO_RENDER_MODE_KEY = "214keys-hero-render";
+const HERO_RENDER_MODE_KEY = "214keys-hero-render-v3";
+const LEGACY_HERO_RENDER_MODE_KEYS = ["214keys-hero-render", "214keys-hero-render-v2"];
 const FPS_BENCHMARK_TAPS = 2;
 const FPS_PROBE_MS = 750;
 const FPS_SIMPLE_THRESHOLD = 15;
+const FPS_BENCHMARK_MIN_FRAMES = 3;
 const FPS_FRAME_GAP_MAX = 250;
 const GLOBAL_MAX_PARTICLES = 64;
 const ECONOMY_MAX_PARTICLES = 6;
@@ -167,8 +168,7 @@ function isEconomyMode() {
   if (particleProfileName === "lowfps") return true;
   if (heroRenderMode === "simple") return true;
   if (heroRenderMode === "full") return false;
-  if (isWeakDeviceProfile()) return true;
-  if (!fpsBenchmarkDone) return false;
+  if (!fpsBenchmarkDone && isWeakDeviceProfile()) return true;
   return false;
 }
 
@@ -183,19 +183,27 @@ export function initParticleProfileAutoDetect() {
 
 function loadHeroRenderMode() {
   try {
-    sessionStorage.removeItem(LEGACY_HERO_RENDER_MODE_KEY);
-    const saved = sessionStorage.getItem(HERO_RENDER_MODE_KEY);
-    if (saved === "simple") {
-      heroRenderMode = "simple";
-      fpsBenchmarkDone = true;
-      return;
+    for (const key of LEGACY_HERO_RENDER_MODE_KEYS) {
+      sessionStorage.removeItem(key);
     }
-    if (saved === "full" && !isWeakDeviceProfile()) {
-      heroRenderMode = "full";
+    const saved = sessionStorage.getItem(HERO_RENDER_MODE_KEY);
+    if (saved === "simple" || saved === "full") {
+      heroRenderMode = saved;
       fpsBenchmarkDone = true;
     }
   } catch {
     /* ignore */
+  }
+}
+
+function resetFpsBenchmarkProbe() {
+  fpsBenchmarkFinalizePending = false;
+  fpsBenchmarkFrames = 0;
+  fpsBenchmarkSum = 0;
+  fpsBenchmarkLastTs = 0;
+  if (fpsBenchmarkFinalizeTimer) {
+    window.clearTimeout(fpsBenchmarkFinalizeTimer);
+    fpsBenchmarkFinalizeTimer = 0;
   }
 }
 
@@ -219,6 +227,15 @@ function heroEffectProfile() {
 
 function finalizeFpsBenchmark() {
   if (fpsBenchmarkDone || debugHeroRenderOverride) return;
+
+  if (fpsBenchmarkFrames < FPS_BENCHMARK_MIN_FRAMES) {
+    fpsBenchmarkDone = false;
+    fpsBenchmarkActive = false;
+    fpsBenchmarkTapCount = FPS_BENCHMARK_TAPS - 1;
+    resetFpsBenchmarkProbe();
+    return;
+  }
+
   fpsBenchmarkDone = true;
   fpsBenchmarkActive = false;
   fpsBenchmarkFinalizePending = false;
@@ -227,15 +244,10 @@ function finalizeFpsBenchmark() {
     fpsBenchmarkFinalizeTimer = 0;
   }
 
-  const avgFps =
-    fpsBenchmarkFrames > 0 ? 1000 / (fpsBenchmarkSum / fpsBenchmarkFrames) : 0;
-  if (isWeakDeviceProfile()) {
-    heroRenderMode = "simple";
-  } else {
-    heroRenderMode = avgFps >= FPS_SIMPLE_THRESHOLD ? "full" : "simple";
-  }
+  const avgFps = 1000 / (fpsBenchmarkSum / fpsBenchmarkFrames);
+  heroRenderMode = avgFps >= FPS_SIMPLE_THRESHOLD ? "full" : "simple";
   saveHeroRenderMode(heroRenderMode);
-  trimParticles();
+  if (heroRenderMode === "simple") trimParticles();
 }
 
 function onHeroBenchmarkTap() {

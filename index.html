@@ -8,10 +8,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@200..900&family=Noto+Sans+SC:wght@200..900&family=Noto+Serif+SC:wght@200..900&family=Zen+Kaku+Gothic+New:wght@300..900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=43">
+  <link rel="stylesheet" href="css/style.css?v=47">
   <script>
     (function () {
-      var BUILD = "43";
+      var BUILD = "47";
+      document.addEventListener("DOMContentLoaded", function () {
+        var buildEl = document.getElementById("header-build");
+        if (buildEl) buildEl.textContent = "v" + BUILD;
+      });
       try {
         var buildKey = "214keys-build";
         var savedBuild = localStorage.getItem(buildKey);
@@ -37,7 +41,7 @@
 
     <header class="header">
       <p class="header__eyebrow">康熙部首 · 214 radicals</p>
-      <h1 class="header__title">214 ключей</h1>
+      <h1 class="header__title"><span class="header__title-inner">214 ключей<sup class="header__build" id="header-build" aria-hidden="true"></sup></span></h1>
       <p class="header__subtitle">Кликни на иероглиф — откроется чтение и объяснение ключа</p>
     </header>
 
@@ -257,6 +261,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="js/app.js?v=43"></script>
+  <script type="module" src="js/app.js?v=47"></script>
 </body>
 </html>
