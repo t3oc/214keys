@@ -35,15 +35,17 @@ let heroBurstSeq = 0;
 
 /** @type {null | "full" | "simple"} */
 let heroRenderMode = null;
-let fpsProbeActive = false;
-let fpsProbeFrames = 0;
-let fpsProbeSum = 0;
-let fpsProbeLastTs = 0;
-let fpsProbeStartedAt = 0;
+let fpsMonitorActive = false;
+let fpsMonitorFrames = 0;
+let fpsMonitorSum = 0;
+let fpsMonitorLastTs = 0;
+let fpsMonitorWindowStart = 0;
 
 const HERO_RENDER_MODE_KEY = "214keys-hero-render";
-const FPS_PROBE_MS = 750;
+const FPS_PROBE_MS = 600;
 const FPS_SIMPLE_THRESHOLD = 15;
+const FPS_FULL_THRESHOLD = 20;
+const FPS_FRAME_GAP_MAX = 250;
 const GLOBAL_MAX_PARTICLES = 64;
 const ECONOMY_MAX_PARTICLES = 6;
 const ECONOMY_SPEAKER_GLYPHS = 2;
@@ -198,34 +200,49 @@ function heroEffectProfile() {
   return PARTICLE_PROFILES.desktop;
 }
 
-function startFpsProbe() {
-  if (heroRenderMode !== null || fpsProbeActive) return;
-  fpsProbeActive = true;
-  fpsProbeFrames = 0;
-  fpsProbeSum = 0;
-  fpsProbeLastTs = 0;
-  fpsProbeStartedAt = performance.now();
+function beginFpsMonitor() {
+  if (debugHeroRenderOverride) return;
+  fpsMonitorActive = true;
+  if (!fpsMonitorWindowStart) fpsMonitorWindowStart = performance.now();
 }
 
-function recordFpsProbe(ts) {
-  if (!fpsProbeActive) return;
+function updateFpsMonitor(ts) {
+  if (!fpsMonitorActive || debugHeroRenderOverride) return;
 
-  if (fpsProbeLastTs) {
-    const dt = ts - fpsProbeLastTs;
-    if (dt > 0) {
-      fpsProbeSum += dt;
-      fpsProbeFrames += 1;
+  if (fpsMonitorLastTs) {
+    const dt = ts - fpsMonitorLastTs;
+    if (dt > 0 && dt < FPS_FRAME_GAP_MAX) {
+      fpsMonitorSum += dt;
+      fpsMonitorFrames += 1;
     }
   }
-  fpsProbeLastTs = ts;
+  fpsMonitorLastTs = ts;
 
-  if (performance.now() - fpsProbeStartedAt < FPS_PROBE_MS || fpsProbeFrames < 5) return;
+  const elapsed = performance.now() - fpsMonitorWindowStart;
+  if (elapsed < FPS_PROBE_MS || fpsMonitorFrames < 4) return;
 
-  const avgFrameMs = fpsProbeSum / fpsProbeFrames;
-  const avgFps = 1000 / avgFrameMs;
-  heroRenderMode = avgFps < FPS_SIMPLE_THRESHOLD ? "simple" : "full";
-  fpsProbeActive = false;
-  saveHeroRenderMode(heroRenderMode);
+  const avgFps = 1000 / (fpsMonitorSum / fpsMonitorFrames);
+  const prevMode = heroRenderMode;
+  let nextMode = heroRenderMode;
+
+  if (heroRenderMode !== "simple" && avgFps < FPS_SIMPLE_THRESHOLD) {
+    nextMode = "simple";
+  } else if (heroRenderMode === "simple" && avgFps >= FPS_FULL_THRESHOLD) {
+    nextMode = "full";
+  } else if (heroRenderMode === null) {
+    nextMode = avgFps < FPS_SIMPLE_THRESHOLD ? "simple" : "full";
+  }
+
+  if (nextMode !== prevMode) {
+    heroRenderMode = nextMode;
+    saveHeroRenderMode(nextMode);
+    if (nextMode === "simple") trimParticles();
+  }
+
+  fpsMonitorFrames = 0;
+  fpsMonitorSum = 0;
+  fpsMonitorWindowStart = performance.now();
+  fpsMonitorLastTs = 0;
 }
 
 export function getHeroRenderMode() {
@@ -549,7 +566,7 @@ function tick(ts) {
     return;
   }
 
-  recordFpsProbe(ts);
+  updateFpsMonitor(ts);
 
   const profile = heroEffectProfile();
   if (profile.skipFrame && skipFrame) {
@@ -596,6 +613,7 @@ function tick(ts) {
 }
 
 function startLoop() {
+  beginFpsMonitor();
   if (!rafId) {
     lastTs = 0;
     rafId = requestAnimationFrame(tick);
@@ -687,7 +705,7 @@ export function burstHeroGlyphWhisper(anchorEl, item) {
 }
 
 export function burstHeroCharSalute(anchorEl, item) {
-  if (heroRenderMode === null) startFpsProbe();
+  beginFpsMonitor();
   heroBurstSpin += rand(0.06, 0.14);
   pushHeroBurst(anchorEl, item, "click");
 }
