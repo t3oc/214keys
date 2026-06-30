@@ -31,13 +31,13 @@ let heroPlaybackTimer = 0;
 let heroPlaybackAnchor = null;
 let heroPlaybackItem = null;
 let heroBurstSpin = 0;
+let heroBurstSeq = 0;
 
 const PARTICLE_PROFILES = {
   desktop: {
     maxParticles: 1200,
     skipFrame: false,
     fastCullOnBurst: false,
-    cullLifeMs: 0,
     heroClickLifeMs: 2600,
     heroPlaybackLifeMs: 1200,
     speakerCount: [6, 10],
@@ -46,7 +46,8 @@ const PARTICLE_PROFILES = {
     maxParticles: 200,
     skipFrame: false,
     fastCullOnBurst: true,
-    cullLifeMs: 140,
+    maxHeroBursts: 2,
+    cullFadeMs: 520,
     heroClickLifeMs: 2100,
     heroPlaybackLifeMs: 900,
     speakerCount: [4, 8],
@@ -55,7 +56,8 @@ const PARTICLE_PROFILES = {
     maxParticles: 112,
     skipFrame: true,
     fastCullOnBurst: true,
-    cullLifeMs: 120,
+    maxHeroBursts: 2,
+    cullFadeMs: 460,
     heroClickLifeMs: 1800,
     heroPlaybackLifeMs: 780,
     speakerCount: [3, 6],
@@ -162,15 +164,38 @@ function trimParticles() {
   particles = particles.slice(excess);
 }
 
+function getActiveHeroBurstIds() {
+  const ids = new Set();
+  for (const p of particles) {
+    if (p.fixed && p.burstId != null) {
+      ids.add(p.burstId);
+    }
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
+function beginHeroParticleFadeOut(p, fadeMs) {
+  if (p.culling) return;
+  p.culling = true;
+  p.cullFadeMs = fadeMs;
+  p.cullAge = 0;
+  p.cullStartFade = particleLifeFade(p);
+}
+
 function cullHeroParticlesForNextBurst() {
   const profile = activeProfile();
-  if (!profile.fastCullOnBurst || !profile.cullLifeMs) return;
+  if (!profile.fastCullOnBurst) return;
 
+  const maxBursts = profile.maxHeroBursts ?? 2;
+  const fadeMs = profile.cullFadeMs ?? 480;
+  const activeIds = getActiveHeroBurstIds();
+
+  if (activeIds.length < maxBursts) return;
+
+  const idsToFade = activeIds.slice(0, activeIds.length - maxBursts + 1);
   for (const p of particles) {
-    if (!p.fixed || p.culling) continue;
-    p.culling = true;
-    p.life = Math.min(p.life, profile.cullLifeMs);
-    p.lifeMax = Math.min(p.lifeMax ?? p.life, profile.cullLifeMs);
+    if (!p.fixed || p.culling || !idsToFade.includes(p.burstId)) continue;
+    beginHeroParticleFadeOut(p, fadeMs);
   }
 }
 
@@ -234,6 +259,7 @@ function heroSunSlots() {
 function spawnHeroParticle(root, center, item, opts = {}) {
   const profile = activeProfile();
   const {
+    burstId = null,
     emoji = getRadicalEmoji(item.id),
     glyph = null,
     sizeMin = 22,
@@ -263,6 +289,7 @@ function spawnHeroParticle(root, center, item, opts = {}) {
   const particle = {
     el,
     fixed: true,
+    burstId,
     x: center.x + offsetX,
     y: center.y + offsetY,
     vx: Math.cos(angle) * speed,
@@ -317,26 +344,30 @@ function spawnParticle(host, lang, glyphs, opts = {}) {
   return particle;
 }
 
-function applyParticleStyle(p, t) {
-  let fade = t;
-  let scaleFalloff = 0.85;
-
-  if (p.culling) {
-    fade = Math.min(1, t * 2.35 + 0.42);
-    scaleFalloff = 1.05;
-  }
-
+function applyParticleStyle(p, fade) {
+  const scaleFalloff = p.culling ? 0.5 : 0.85;
   const alpha = 1 - fade;
-  const scale = p.scale * Math.max(0.04, 1 - fade * scaleFalloff);
+  const scale = p.scale * Math.max(0.2, 1 - fade * scaleFalloff);
   p.el.style.position = p.fixed ? "fixed" : "absolute";
   p.el.style.opacity = String(Math.max(0, alpha));
   p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) translate(-50%, -50%) rotate(${p.rotation}deg) scale(${scale})`;
   if (p.fixed) p.el.style.zIndex = "1";
 }
 
-function particleFade(p) {
+function particleLifeFade(p) {
   const lifeMax = p.lifeMax ?? LIFE_MS;
   return 1 - p.life / lifeMax;
+}
+
+function smoothstep(t) {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+}
+
+function particleVisualFade(p) {
+  if (!p.culling) return particleLifeFade(p);
+  const t = smoothstep(Math.min(1, p.cullAge / p.cullFadeMs));
+  return p.cullStartFade + (1 - p.cullStartFade) * t;
 }
 
 function tick(ts) {
@@ -360,10 +391,18 @@ function tick(ts) {
   const drag = Math.exp(-4.6 * (dt / 1000));
 
   particles = particles.filter((p) => {
-    p.life -= dt;
-    if (p.life <= 0) {
-      p.el.remove();
-      return false;
+    if (p.culling) {
+      p.cullAge += dt;
+      if (p.cullAge >= p.cullFadeMs) {
+        p.el.remove();
+        return false;
+      }
+    } else {
+      p.life -= dt;
+      if (p.life <= 0) {
+        p.el.remove();
+        return false;
+      }
     }
 
     p.vx *= p.fixed ? Math.exp(-2.4 * (dt / 1000)) : drag;
@@ -372,7 +411,7 @@ function tick(ts) {
     p.y += p.vy * (dt / 1000);
     p.rotation += p.spin * (dt / 1000);
 
-    applyParticleStyle(p, particleFade(p));
+    applyParticleStyle(p, particleVisualFade(p));
     return true;
   });
 
@@ -395,7 +434,10 @@ function pushHeroBurst(anchorEl, item, profileKind) {
   const center = getHeroSpawnCenter(anchorEl);
   if (!root || !center || !item) return;
 
+  cullHeroParticlesForNextBurst();
+
   const profile = activeProfile();
+  const burstId = ++heroBurstSeq;
   const themeEmoji = getRadicalEmoji(item.id);
   const glyphs = collectGlyphs(item);
   const isClick = profileKind === "click";
@@ -414,6 +456,7 @@ function pushHeroBurst(anchorEl, item, profileKind) {
     if (slot.kind === "emoji") {
       particles.push(
         spawnHeroParticle(root, center, item, {
+          burstId,
           emoji: themeEmoji,
           angle,
           sizeMin: emojiSize[0],
@@ -428,6 +471,7 @@ function pushHeroBurst(anchorEl, item, profileKind) {
 
     particles.push(
       spawnHeroParticle(root, center, item, {
+        burstId,
         glyph: pick(glyphs),
         angle,
         sizeMin: glyphSize[0],
@@ -470,7 +514,6 @@ export function burstHeroGlyphWhisper(anchorEl, item) {
 }
 
 export function burstHeroCharSalute(anchorEl, item) {
-  cullHeroParticlesForNextBurst();
   heroBurstSpin += rand(0.06, 0.14);
   pushHeroBurst(anchorEl, item, "click");
 }
