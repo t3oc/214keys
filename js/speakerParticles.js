@@ -33,6 +33,21 @@ let heroPlaybackItem = null;
 let heroBurstSpin = 0;
 let heroBurstSeq = 0;
 
+/** @type {null | "full" | "simple"} */
+let heroRenderMode = null;
+let fpsProbeActive = false;
+let fpsProbeFrames = 0;
+let fpsProbeSum = 0;
+let fpsProbeLastTs = 0;
+let fpsProbeStartedAt = 0;
+
+const HERO_RENDER_MODE_KEY = "214keys-hero-render";
+const FPS_PROBE_MS = 750;
+const FPS_SIMPLE_THRESHOLD = 15;
+const HERO_SIMPLE_EMOJI_COUNT = 6;
+const HERO_SCALE_FALLOFF = 0.85;
+const HERO_SCALE_MIN = 0.2;
+
 const PARTICLE_PROFILES = {
   desktop: {
     maxParticles: 1200,
@@ -62,6 +77,17 @@ const PARTICLE_PROFILES = {
     heroPlaybackLifeMs: 780,
     speakerCount: [3, 6],
   },
+};
+
+const SIMPLE_HERO_PROFILE = {
+  maxParticles: 96,
+  skipFrame: false,
+  fastCullOnBurst: true,
+  maxHeroBursts: 2,
+  cullFadeMs: 420,
+  heroClickLifeMs: 1700,
+  heroPlaybackLifeMs: 760,
+  speakerCount: [3, 5],
 };
 
 const PROFILE_ORDER = ["android", "ios", "desktop"];
@@ -96,6 +122,66 @@ export function profileLevelFromName(name) {
 
 export function initParticleProfileAutoDetect() {
   particleProfileName = detectParticleProfile();
+  loadHeroRenderMode();
+}
+
+function loadHeroRenderMode() {
+  try {
+    const saved = sessionStorage.getItem(HERO_RENDER_MODE_KEY);
+    if (saved === "simple" || saved === "full") {
+      heroRenderMode = saved;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function saveHeroRenderMode(mode) {
+  try {
+    sessionStorage.setItem(HERO_RENDER_MODE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function heroEffectProfile() {
+  if (heroRenderMode === "simple") return SIMPLE_HERO_PROFILE;
+  if (heroRenderMode === "full") return PARTICLE_PROFILES.desktop;
+  return activeProfile();
+}
+
+function startFpsProbe() {
+  if (heroRenderMode !== null || fpsProbeActive) return;
+  fpsProbeActive = true;
+  fpsProbeFrames = 0;
+  fpsProbeSum = 0;
+  fpsProbeLastTs = 0;
+  fpsProbeStartedAt = performance.now();
+}
+
+function recordFpsProbe(ts) {
+  if (!fpsProbeActive) return;
+
+  if (fpsProbeLastTs) {
+    const dt = ts - fpsProbeLastTs;
+    if (dt > 0) {
+      fpsProbeSum += dt;
+      fpsProbeFrames += 1;
+    }
+  }
+  fpsProbeLastTs = ts;
+
+  if (performance.now() - fpsProbeStartedAt < FPS_PROBE_MS || fpsProbeFrames < 5) return;
+
+  const avgFrameMs = fpsProbeSum / fpsProbeFrames;
+  const avgFps = 1000 / avgFrameMs;
+  heroRenderMode = avgFps < FPS_SIMPLE_THRESHOLD ? "simple" : "full";
+  fpsProbeActive = false;
+  saveHeroRenderMode(heroRenderMode);
+}
+
+export function getHeroRenderMode() {
+  return heroRenderMode;
 }
 
 function collectGlyphs(item) {
@@ -154,7 +240,7 @@ function getHeroSpawnCenter(anchorEl) {
 }
 
 function trimParticles() {
-  const max = activeProfile().maxParticles;
+  const max = heroEffectProfile().maxParticles;
   if (particles.length <= max) return;
 
   const excess = particles.length - max;
@@ -176,14 +262,16 @@ function getActiveHeroBurstIds() {
 
 function beginHeroParticleFadeOut(p, fadeMs) {
   if (p.culling) return;
+  const fade = particleLifeFade(p);
   p.culling = true;
   p.cullFadeMs = fadeMs;
   p.cullAge = 0;
-  p.cullStartFade = particleLifeFade(p);
+  p.cullStartAlpha = 1 - fade;
+  p.cullStartScaleMul = Math.max(HERO_SCALE_MIN, 1 - fade * HERO_SCALE_FALLOFF);
 }
 
 function cullHeroParticlesForNextBurst() {
-  const profile = activeProfile();
+  const profile = heroEffectProfile();
   if (!profile.fastCullOnBurst) return;
 
   const maxBursts = profile.maxHeroBursts ?? 2;
@@ -247,6 +335,14 @@ function heroSunSlots() {
   /** @type {{ kind: "emoji" | "glyph", angle: number }[]} */
   const slots = [];
 
+  if (heroRenderMode === "simple") {
+    for (let i = 0; i < HERO_SIMPLE_EMOJI_COUNT; i++) {
+      const angle = HERO_SUN_BASE + i * (Math.PI * 2 / HERO_SIMPLE_EMOJI_COUNT);
+      slots.push({ kind: "emoji", angle });
+    }
+    return slots;
+  }
+
   for (let i = 0; i < HERO_OCTANTS; i++) {
     const octant = HERO_SUN_BASE + i * (Math.PI * 2 / HERO_OCTANTS);
     slots.push({ kind: "emoji", angle: octant });
@@ -257,7 +353,7 @@ function heroSunSlots() {
 }
 
 function spawnHeroParticle(root, center, item, opts = {}) {
-  const profile = activeProfile();
+  const profile = heroEffectProfile();
   const {
     burstId = null,
     emoji = getRadicalEmoji(item.id),
@@ -303,7 +399,7 @@ function spawnHeroParticle(root, center, item, opts = {}) {
     culling: false,
   };
 
-  applyParticleStyle(particle, 0);
+  applyParticleStyle(particle);
   return particle;
 }
 
@@ -340,14 +436,25 @@ function spawnParticle(host, lang, glyphs, opts = {}) {
     culling: false,
   };
 
-  applyParticleStyle(particle, 0);
+  applyParticleStyle(particle);
   return particle;
 }
 
-function applyParticleStyle(p, fade) {
-  const scaleFalloff = p.culling ? 0.5 : 0.85;
-  const alpha = 1 - fade;
-  const scale = p.scale * Math.max(0.2, 1 - fade * scaleFalloff);
+function applyParticleStyle(p) {
+  let alpha;
+  let scaleMul;
+
+  if (p.culling) {
+    const t = smoothstep(Math.min(1, p.cullAge / p.cullFadeMs));
+    alpha = p.cullStartAlpha * (1 - t);
+    scaleMul = p.cullStartScaleMul + (HERO_SCALE_MIN - p.cullStartScaleMul) * t;
+  } else {
+    const fade = particleLifeFade(p);
+    alpha = 1 - fade;
+    scaleMul = Math.max(HERO_SCALE_MIN, 1 - fade * HERO_SCALE_FALLOFF);
+  }
+
+  const scale = p.scale * scaleMul;
   p.el.style.position = p.fixed ? "fixed" : "absolute";
   p.el.style.opacity = String(Math.max(0, alpha));
   p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) translate(-50%, -50%) rotate(${p.rotation}deg) scale(${scale})`;
@@ -364,12 +471,6 @@ function smoothstep(t) {
   return x * x * (3 - 2 * x);
 }
 
-function particleVisualFade(p) {
-  if (!p.culling) return particleLifeFade(p);
-  const t = smoothstep(Math.min(1, p.cullAge / p.cullFadeMs));
-  return p.cullStartFade + (1 - p.cullStartFade) * t;
-}
-
 function tick(ts) {
   rafId = 0;
 
@@ -378,7 +479,9 @@ function tick(ts) {
     return;
   }
 
-  const profile = activeProfile();
+  recordFpsProbe(ts);
+
+  const profile = heroEffectProfile();
   if (profile.skipFrame && skipFrame) {
     skipFrame = false;
     rafId = requestAnimationFrame(tick);
@@ -411,7 +514,7 @@ function tick(ts) {
     p.y += p.vy * (dt / 1000);
     p.rotation += p.spin * (dt / 1000);
 
-    applyParticleStyle(p, particleVisualFade(p));
+    applyParticleStyle(p);
     return true;
   });
 
@@ -436,7 +539,7 @@ function pushHeroBurst(anchorEl, item, profileKind) {
 
   cullHeroParticlesForNextBurst();
 
-  const profile = activeProfile();
+  const profile = heroEffectProfile();
   const burstId = ++heroBurstSeq;
   const themeEmoji = getRadicalEmoji(item.id);
   const glyphs = collectGlyphs(item);
@@ -514,6 +617,7 @@ export function burstHeroGlyphWhisper(anchorEl, item) {
 }
 
 export function burstHeroCharSalute(anchorEl, item) {
+  if (heroRenderMode === null) startFpsProbe();
   heroBurstSpin += rand(0.06, 0.14);
   pushHeroBurst(anchorEl, item, "click");
 }
