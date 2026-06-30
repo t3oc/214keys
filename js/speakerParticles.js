@@ -43,10 +43,14 @@ let fpsBenchmarkFrames = 0;
 let fpsBenchmarkSum = 0;
 let fpsBenchmarkLastTs = 0;
 let fpsBenchmarkFinalizeTimer = 0;
+let fullWatchActive = false;
+let fullWatchTapCount = 0;
+let fullWatchProbeActive = false;
 
 const HERO_RENDER_MODE_KEY = "214keys-hero-render-v3";
 const LEGACY_HERO_RENDER_MODE_KEYS = ["214keys-hero-render", "214keys-hero-render-v2"];
 const FPS_BENCHMARK_TAPS = 2;
+const FULL_WATCH_TAPS = 3;
 const FPS_PROBE_MS = 750;
 const FPS_SIMPLE_THRESHOLD = 15;
 const FPS_BENCHMARK_MIN_FRAMES = 3;
@@ -190,13 +194,14 @@ function loadHeroRenderMode() {
     if (saved === "simple" || saved === "full") {
       heroRenderMode = saved;
       fpsBenchmarkDone = true;
+      if (saved === "full") startFullModeWatch();
     }
   } catch {
     /* ignore */
   }
 }
 
-function resetFpsBenchmarkProbe() {
+function resetFpsProbeCounters() {
   fpsBenchmarkFinalizePending = false;
   fpsBenchmarkFrames = 0;
   fpsBenchmarkSum = 0;
@@ -205,6 +210,24 @@ function resetFpsBenchmarkProbe() {
     window.clearTimeout(fpsBenchmarkFinalizeTimer);
     fpsBenchmarkFinalizeTimer = 0;
   }
+}
+
+function startFullModeWatch() {
+  if (debugHeroRenderOverride || heroRenderMode !== "full") return;
+  fullWatchActive = true;
+  fullWatchTapCount = 0;
+  fullWatchProbeActive = false;
+}
+
+function recordFpsProbeSample(ts) {
+  if (fpsBenchmarkLastTs) {
+    const dt = ts - fpsBenchmarkLastTs;
+    if (dt > 0 && dt < FPS_FRAME_GAP_MAX) {
+      fpsBenchmarkSum += dt;
+      fpsBenchmarkFrames += 1;
+    }
+  }
+  fpsBenchmarkLastTs = ts;
 }
 
 function saveHeroRenderMode(mode) {
@@ -232,7 +255,7 @@ function finalizeFpsBenchmark() {
     fpsBenchmarkDone = false;
     fpsBenchmarkActive = false;
     fpsBenchmarkTapCount = FPS_BENCHMARK_TAPS - 1;
-    resetFpsBenchmarkProbe();
+    resetFpsProbeCounters();
     return;
   }
 
@@ -247,7 +270,37 @@ function finalizeFpsBenchmark() {
   const avgFps = 1000 / (fpsBenchmarkSum / fpsBenchmarkFrames);
   heroRenderMode = avgFps >= FPS_SIMPLE_THRESHOLD ? "full" : "simple";
   saveHeroRenderMode(heroRenderMode);
-  if (heroRenderMode === "simple") trimParticles();
+  if (heroRenderMode === "simple") {
+    trimParticles();
+  } else {
+    startFullModeWatch();
+  }
+}
+
+function finalizeFullWatchProbe() {
+  if (!fullWatchProbeActive) return;
+  fullWatchProbeActive = false;
+  fpsBenchmarkFinalizePending = false;
+  if (fpsBenchmarkFinalizeTimer) {
+    window.clearTimeout(fpsBenchmarkFinalizeTimer);
+    fpsBenchmarkFinalizeTimer = 0;
+  }
+
+  if (fpsBenchmarkFrames < FPS_BENCHMARK_MIN_FRAMES) {
+    fullWatchTapCount = FULL_WATCH_TAPS - 1;
+    resetFpsProbeCounters();
+    return;
+  }
+
+  fullWatchActive = false;
+  const avgFps = 1000 / (fpsBenchmarkSum / fpsBenchmarkFrames);
+  resetFpsProbeCounters();
+
+  if (avgFps < FPS_SIMPLE_THRESHOLD) {
+    heroRenderMode = "simple";
+    saveHeroRenderMode("simple");
+    trimParticles();
+  }
 }
 
 function onHeroBenchmarkTap() {
@@ -263,20 +316,32 @@ function onHeroBenchmarkTap() {
   fpsBenchmarkFinalizeTimer = window.setTimeout(finalizeFpsBenchmark, FPS_PROBE_MS);
 }
 
+function onHeroFullWatchTap() {
+  if (!fullWatchActive || fullWatchProbeActive || debugHeroRenderOverride || heroRenderMode !== "full") return;
+
+  fullWatchTapCount += 1;
+  if (fullWatchTapCount < FULL_WATCH_TAPS) return;
+
+  fullWatchProbeActive = true;
+  resetFpsProbeCounters();
+  fpsBenchmarkFinalizePending = true;
+  fpsBenchmarkFinalizeTimer = window.setTimeout(finalizeFullWatchProbe, FPS_PROBE_MS);
+}
+
 function recordFpsBenchmark(ts) {
-  if (!fpsBenchmarkActive || fpsBenchmarkDone) return;
-
-  if (fpsBenchmarkLastTs) {
-    const dt = ts - fpsBenchmarkLastTs;
-    if (dt > 0 && dt < FPS_FRAME_GAP_MAX) {
-      fpsBenchmarkSum += dt;
-      fpsBenchmarkFrames += 1;
+  if (fpsBenchmarkActive && !fpsBenchmarkDone) {
+    recordFpsProbeSample(ts);
+    if (fpsBenchmarkFinalizePending && fpsBenchmarkFrames >= 4) {
+      finalizeFpsBenchmark();
     }
+    return;
   }
-  fpsBenchmarkLastTs = ts;
 
-  if (fpsBenchmarkFinalizePending && fpsBenchmarkFrames >= 4) {
-    finalizeFpsBenchmark();
+  if (fullWatchProbeActive) {
+    recordFpsProbeSample(ts);
+    if (fpsBenchmarkFinalizePending && fpsBenchmarkFrames >= 4) {
+      finalizeFullWatchProbe();
+    }
   }
 }
 
@@ -740,6 +805,7 @@ export function burstHeroGlyphWhisper(anchorEl, item) {
 
 export function burstHeroCharSalute(anchorEl, item) {
   onHeroBenchmarkTap();
+  onHeroFullWatchTap();
   heroBurstSpin += rand(0.06, 0.14);
   pushHeroBurst(anchorEl, item, "click");
 }
