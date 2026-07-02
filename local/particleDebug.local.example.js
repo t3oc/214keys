@@ -3,14 +3,17 @@
 
 import {
   getParticleProfile,
+  getParticleProfileCount,
   getParticleProfileLabel,
+  getHeroEaseConfig,
   profileLevelFromName,
   profileNameFromLevel,
+  setHeroEaseConfig,
   setParticleProfile,
 } from "../js/speakerParticles.js";
 
 const PARTICLE_DEBUG_KEY = "214keys-particle-debug";
-const PARTICLE_DEBUG_STEPS = 3;
+const EMOJI_FLIGHT_EASE_KEY = "214keys-emoji-flight-ease";
 
 const DEBUG_STYLES = `
 .particle-debug-control {
@@ -127,6 +130,10 @@ export function mountParticleDebug() {
   const fontWeightControl = document.querySelector(".font-weight-control");
   if (!fontWeightControl || document.getElementById("particle-debug-slider")) return;
 
+  const profileCount = getParticleProfileCount();
+  const profileSteps = Math.max(1, profileCount - 1);
+  const defaultLevel = profileLevelFromName(getParticleProfile());
+
   if (!document.getElementById("particle-debug-styles")) {
     const style = document.createElement("style");
     style.id = "particle-debug-styles";
@@ -145,13 +152,13 @@ export function mountParticleDebug() {
       id="particle-debug-slider"
       class="particle-debug-control__slider"
       min="1"
-      max="4"
+      max="${profileCount}"
       step="1"
-      value="4"
+      value="${defaultLevel}"
       aria-label="DEBUG профиль частиц для проверки"
       aria-valuemin="1"
-      aria-valuemax="4"
-      aria-valuenow="4"
+      aria-valuemax="${profileCount}"
+      aria-valuenow="${defaultLevel}"
     >
   `;
 
@@ -164,8 +171,8 @@ export function mountParticleDebug() {
   function syncParticleDebugSliderLayout() {
     if (!particleDebugSlider) return;
     const trackWidth = particleDebugSlider.clientWidth;
-    const thumbW = trackWidth / PARTICLE_DEBUG_STEPS;
-    particleDebugControl.style.setProperty("--particle-debug-steps", String(PARTICLE_DEBUG_STEPS));
+    const thumbW = trackWidth / profileSteps;
+    particleDebugControl.style.setProperty("--particle-debug-steps", String(profileSteps));
     particleDebugControl.style.setProperty("--particle-debug-thumb-w", `${thumbW}px`);
   }
 
@@ -207,4 +214,61 @@ export function mountParticleDebug() {
 
   window.addEventListener("resize", syncParticleDebugSliderLayout);
   requestAnimationFrame(syncParticleDebugSliderLayout);
+
+  if (document.getElementById("emoji-flight-ease-slider")) return;
+
+  const emojiEaseLabel = document.createElement("label");
+  emojiEaseLabel.className = "particle-debug-control";
+  emojiEaseLabel.htmlFor = "emoji-flight-ease-slider";
+  emojiEaseLabel.style.setProperty("--particle-debug-steps", "1");
+  const defaultEmojiFlight = getHeroEaseConfig().emojiFlight ?? 91;
+  emojiEaseLabel.innerHTML = `
+    <span class="particle-debug-control__title">DEBUG · easing полёта emoji</span>
+    <span class="particle-debug-control__value" id="emoji-flight-ease-value">${defaultEmojiFlight}</span>
+    <input
+      type="range"
+      id="emoji-flight-ease-slider"
+      class="particle-debug-control__slider"
+      min="0"
+      max="100"
+      step="1"
+      value="${defaultEmojiFlight}"
+      aria-label="DEBUG easing полёта emoji"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow="${defaultEmojiFlight}"
+    >
+  `;
+  label.insertAdjacentElement("afterend", emojiEaseLabel);
+
+  const emojiFlightSlider = document.getElementById("emoji-flight-ease-slider");
+  const emojiFlightValue = document.getElementById("emoji-flight-ease-value");
+
+  function applyEmojiFlightEase(value, { persist = true } = {}) {
+    const eased = Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
+    setHeroEaseConfig({ emojiFlight: eased });
+    if (emojiFlightSlider) {
+      emojiFlightSlider.value = String(eased);
+      emojiFlightSlider.setAttribute("aria-valuenow", String(eased));
+    }
+    if (emojiFlightValue) emojiFlightValue.textContent = String(eased);
+    if (persist) {
+      try {
+        localStorage.setItem(EMOJI_FLIGHT_EASE_KEY, String(eased));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  try {
+    const saved = localStorage.getItem(EMOJI_FLIGHT_EASE_KEY);
+    applyEmojiFlightEase(saved != null ? saved : defaultEmojiFlight);
+  } catch {
+    applyEmojiFlightEase(defaultEmojiFlight, { persist: false });
+  }
+
+  emojiFlightSlider?.addEventListener("input", () => {
+    applyEmojiFlightEase(emojiFlightSlider.value);
+  });
 }

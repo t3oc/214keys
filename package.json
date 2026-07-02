@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "generate:audio": "node scripts/generate-audio.mjs",
-    "generate:sfx": "node scripts/generate-radical-sfx.mjs"
+    "generate:sfx": "node scripts/generate-radical-sfx.mjs",
+    "sync:beta": "node scripts/sync-beta.mjs"
   },
   "devDependencies": {
     "ffmpeg-static": "^5.2.0",
