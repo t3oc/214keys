@@ -1,3 +1,4 @@
+import { isBetaChannel } from "./appBase.js";
 import { mountHeroEaseDebug } from "./heroEaseDebug.js";
 
 async function mountHeroEaseDebugToggleFromLocal() {
@@ -17,6 +18,8 @@ async function mountHeroEaseDebugToggleFromLocal() {
 }
 
 export async function mountLocalDebug() {
+  if (isBetaChannel()) return;
+
   mountHeroEaseDebug();
   void mountHeroEaseDebugToggleFromLocal();
 
