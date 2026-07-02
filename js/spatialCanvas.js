@@ -92,6 +92,8 @@ let rmbZoomPointer = null;
 let touchPointers = new Map();
 /** @type {{ startDistance: number, midpoint: { x: number, y: number }, startZoom: number, startPan: { x: number, y: number } } | null} */
 let pinchStart = null;
+/** @type {number[] | null} */
+let pinchPointerIds = null;
 /** @type {{ id: number, points: { x: number, y: number }[] } | null} */
 let lassoPointer = null;
 /** @type {{ kind: "fence-move" | "fence-resize", pointerId: number, strokes: number, startClientX: number, startClientY: number, startOffsetX: number, startOffsetY: number, startScale: number, cardOrigins: Map<string, { x: number, y: number }>, fenceEl: HTMLElement } | null} */
@@ -781,6 +783,42 @@ function pointInPolygon(x, y, polygon) {
   return inside;
 }
 
+function cancelLasso() {
+  if (!lassoPointer) return;
+  lassoPathEl?.setAttribute("d", "");
+  lassoEl?.classList.remove("is-active");
+  lassoPointer = null;
+}
+
+function updateTouchPointer(event) {
+  const rect = stageEl.getBoundingClientRect();
+  touchPointers.set(event.pointerId, {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  });
+}
+
+function sortedTouchPointerIds() {
+  return [...touchPointers.keys()].sort((a, b) => a - b);
+}
+
+function beginLasso(event) {
+  const pt = stagePoint(event.clientX, event.clientY);
+  lassoPointer = { id: event.pointerId, points: [pt] };
+  lassoEl?.classList.add("is-active");
+  setStageCursor("lasso");
+}
+
+function appendLassoPoint(clientX, clientY) {
+  if (!lassoPointer) return;
+  const pt = stagePoint(clientX, clientY);
+  const last = lassoPointer.points[lassoPointer.points.length - 1];
+  if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) > 3) {
+    lassoPointer.points.push(pt);
+    updateLassoPathFromPoints(lassoPointer.points);
+  }
+}
+
 function finishLasso() {
   if (!lassoPointer || !lassoPathEl) return;
   const pts = lassoPointer.points;
@@ -1307,9 +1345,15 @@ function setStageCursor(mode) {
 }
 
 function beginPinch() {
-  const points = [...touchPointers.values()];
+  if (pinchPointerIds?.every((id) => touchPointers.has(id))) return;
+
+  const ids = sortedTouchPointerIds();
+  if (ids.length < 2) return;
+  const pair = ids.slice(0, 2);
+  const points = pair.map((id) => touchPointers.get(id)).filter(Boolean);
   if (points.length < 2) return;
   const [a, b] = points;
+  pinchPointerIds = pair;
   pinchStart = {
     startDistance: Math.hypot(b.x - a.x, b.y - a.y),
     midpoint: { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 },
@@ -1321,18 +1365,22 @@ function beginPinch() {
 }
 
 function applyPinch() {
-  if (!pinchStart || touchPointers.size < 2) return;
-  const points = [...touchPointers.values()];
+  if (!pinchStart || touchPointers.size < 2 || !pinchPointerIds) return;
+  const points = pinchPointerIds
+    .map((id) => touchPointers.get(id))
+    .filter(Boolean);
+  if (points.length < 2) return;
   const [a, b] = points;
   const midpoint = { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
   const distance = Math.hypot(b.x - a.x, b.y - a.y);
-  const midDx = midpoint.x - pinchStart.midpoint.x;
-  const midDy = midpoint.y - pinchStart.midpoint.y;
-  state.viewport.x = pinchStart.startPan.x + midDx;
-  state.viewport.y = pinchStart.startPan.y + midDy;
+  state.viewport.x = pinchStart.startPan.x + (midpoint.x - pinchStart.midpoint.x);
+  state.viewport.y = pinchStart.startPan.y + (midpoint.y - pinchStart.midpoint.y);
   const ratio = distance / Math.max(1, pinchStart.startDistance);
   if (Math.abs(ratio - 1) > 0.03) {
-    const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStart.startZoom * (1 + (ratio - 1) * PINCH_ZOOM_SENS * 6)));
+    const nextZoom = Math.min(
+      MAX_ZOOM,
+      Math.max(MIN_ZOOM, pinchStart.startZoom * (1 + (ratio - 1) * PINCH_ZOOM_SENS * 6)),
+    );
     const rect = stageEl.getBoundingClientRect();
     const sx = rect.left + pinchStart.midpoint.x;
     const sy = rect.top + pinchStart.midpoint.y;
@@ -1345,8 +1393,13 @@ function applyPinch() {
   } else {
     setStageCursor("pan");
   }
-  pinchStart.midpoint = midpoint;
   applyViewportTransform();
+}
+
+function endPinchIfNeeded() {
+  if (touchPointers.size >= 2) return;
+  pinchStart = null;
+  pinchPointerIds = null;
 }
 
 function zoomAt(clientX, clientY, factor) {
@@ -1444,23 +1497,34 @@ function onStagePointerDown(event) {
   if (isInteractiveTarget(event.target)) return;
 
   if (event.pointerType === "touch") {
-    const rect = stageEl.getBoundingClientRect();
-    touchPointers.set(event.pointerId, {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    });
+    updateTouchPointer(event);
     event.preventDefault();
-    stageEl.setPointerCapture(event.pointerId);
-    if (touchPointers.size >= 2) beginPinch();
+    try {
+      stageEl.setPointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    if (touchPointers.size >= 2) {
+      cancelLasso();
+      beginPinch();
+      applyPinch();
+      return;
+    }
+
+    if (touchPointers.size === 1) {
+      beginLasso(event);
+    }
     return;
   }
 
   if (event.button === 0) {
-    const pt = stagePoint(event.clientX, event.clientY);
-    lassoPointer = { id: event.pointerId, points: [pt] };
-    lassoEl?.classList.add("is-active");
-    setStageCursor("lasso");
-    stageEl.setPointerCapture(event.pointerId);
+    beginLasso(event);
+    try {
+      stageEl.setPointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -1474,14 +1538,17 @@ function onStagePointerMove(event) {
 
   if (touchPointers.has(event.pointerId)) {
     event.preventDefault();
-    const rect = stageEl.getBoundingClientRect();
-    touchPointers.set(event.pointerId, {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    });
+    updateTouchPointer(event);
+
     if (touchPointers.size >= 2) {
-      if (!pinchStart) beginPinch();
+      if (lassoPointer) cancelLasso();
+      beginPinch();
       applyPinch();
+      return;
+    }
+
+    if (lassoPointer?.id === event.pointerId) {
+      appendLassoPoint(event.clientX, event.clientY);
     }
     return;
   }
@@ -1507,12 +1574,8 @@ function onStagePointerMove(event) {
   }
 
   if (lassoPointer?.id === event.pointerId) {
-    const pt = stagePoint(event.clientX, event.clientY);
-    const last = lassoPointer.points[lassoPointer.points.length - 1];
-    if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) > 3) {
-      lassoPointer.points.push(pt);
-      updateLassoPathFromPoints(lassoPointer.points);
-    }
+    appendLassoPoint(event.clientX, event.clientY);
+    return;
   }
 }
 
@@ -1524,6 +1587,13 @@ function onStagePointerUp(event) {
       lassoPointer.points.push(pt);
     }
     finishLasso();
+    if (touchPointers.has(event.pointerId)) touchPointers.delete(event.pointerId);
+    endPinchIfNeeded();
+    try {
+      stageEl.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
     if (!activeGesture && !touchPointers.size && !panPointer && !rmbZoomPointer && !dragPointer) {
       setStageCursor(null);
       saveState();
@@ -1537,8 +1607,17 @@ function onStagePointerUp(event) {
 
   if (touchPointers.has(event.pointerId)) {
     touchPointers.delete(event.pointerId);
-    if (touchPointers.size >= 2) beginPinch();
-    else pinchStart = null;
+    if (touchPointers.size >= 2) {
+      pinchPointerIds = null;
+      beginPinch();
+    } else {
+      endPinchIfNeeded();
+    }
+    try {
+      stageEl.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
   }
 
   if (panPointer?.id === event.pointerId) panPointer = null;
@@ -1705,6 +1784,7 @@ export function hideSpatialCanvas() {
   disarmFenceGestureListeners();
   touchPointers.clear();
   pinchStart = null;
+  pinchPointerIds = null;
   if (focusAnimFrame) cancelAnimationFrame(focusAnimFrame);
   clearSelection();
 }
